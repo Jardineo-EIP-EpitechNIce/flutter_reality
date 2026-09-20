@@ -8,7 +8,7 @@
 ## 0.0.1
 * First release
 * Fork of (Ar_Flutter_Plugin_Flutterflow) but with usage of sceneview_android instead of sceneform
-* ⚠️ Migration has been done with the help of Cursor (Ai editor) so maybe some parts are not fully correct (Any contribution is welcome)
+* ⚠️ The migration may still contain incomplete parts; any contribution is welcome.
 * So far, I have managed to implement:
 * ✅ Init
 * ✅ onPlaneOrPointTap

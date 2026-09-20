@@ -7,7 +7,70 @@ This version is a direct adaptation of the original ar_flutter_plugin (https://p
 migrating the Android component from Sceneform to sceneview_android, enabling the use of animated models.<br>
 This fork was created because the original plugin had not been updated since 2022. <br><br>
 ➡ Changes include an update to the AR Core endpoint, a gradle upgrade, and compatibility with FlutterFlow.<br>
-➡ Migration has been done from sceneform to sceneview_android with the help of Cursor (Ai editor) so maybe some parts are not fully correct (Any contribution is welcome)
+➡ Migration has been done from sceneform to sceneview_android; any contribution is welcome.
+
+## Scope and optimization
+
+This plugin provides a unified Flutter API over native ARCore and ARKit capabilities. It
+currently focuses on the core AR session, plane detection, hit testing, anchors, model
+placement, and object interaction features.
+
+The current version does not include:
+
+* an advanced model cache or preloading pipeline;
+* GPU or memory optimization;
+* LOD, texture compression, or automatic model reduction;
+* enhanced occlusion or depth processing;
+* advanced placement stabilization;
+* device-specific dynamic quality adjustment;
+* FPS, memory, GPU-time, or temperature instrumentation;
+* a redesign of frequent Flutter-to-native communication.
+
+These are deliberate boundaries rather than guarantees of production-level AR performance.
+Future optimization can be implemented in the native Android and iOS layers while
+preserving the existing Dart API. Possible directions include native model loading and
+caching, device-adaptive session configuration, improved placement filtering, depth and
+occlusion support, native interaction handling, lifecycle and memory improvements, and
+performance instrumentation on representative devices.
+
+## Development roadmap
+
+The project is developed in the following order:
+
+1. Keep the Dart API stable while fixing lifecycle, placement, and error-handling bugs.
+2. Run formatting, static analysis, unit tests, package validation, and dependency checks
+   on every pull request through GitHub Actions.
+3. Use the [example application](./example) on physical ARCore and ARKit devices to
+   reproduce issues and validate changes.
+4. Add native performance improvements one measurable area at a time, with tests and
+   device-level debug feedback before changing the public API.
+
+The repository does not claim that a desktop, simulator, or ordinary emulator can
+execute an AR session. Those environments can run package checks, but runtime AR
+validation requires a compatible physical device.
+
+## Local development and debugging
+
+Run the automated checks from the repository root:
+
+```bash
+flutter pub get
+dart format --output=none --set-exit-if-changed lib test example/lib
+flutter analyze lib test example/lib
+flutter test --no-pub
+```
+
+Run the manual test app on a physical device:
+
+```bash
+cd example
+flutter pub get
+flutter run
+```
+
+When reporting a problem, include the device model, OS version, Flutter version,
+steps to reproduce, expected behavior, actual behavior, and the relevant section
+of `flutter run -v` output.
 
 
 <b>❤️ I invite you to collaborate and contribute to the improvement of this plugin.</b><br>

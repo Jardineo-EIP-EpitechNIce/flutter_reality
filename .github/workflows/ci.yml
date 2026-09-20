@@ -1,0 +1,54 @@
+name: CI
+
+on:
+  push:
+    branches: [main, dev]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  quality:
+    name: Dart and Flutter quality
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install package dependencies
+        run: flutter pub get
+
+      - name: Check formatting
+        run: >-
+          dart format --output=none --set-exit-if-changed
+          lib/managers/ar_object_manager.dart
+          test/ar_flutter_plugin_test.dart
+          example/lib/main.dart
+          example/test/widget_test.dart
+
+      - name: Analyze package and example
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos lib test example/lib
+
+      - name: Run package tests
+        run: flutter test --no-pub
+
+      - name: Analyze example app
+        working-directory: example
+        run: flutter analyze --no-fatal-warnings --no-fatal-infos
+
+      - name: Run example tests
+        working-directory: example
+        run: flutter test --no-pub
+
+      - name: Validate package metadata
+        run: dart pub publish --dry-run
+
+      - name: Check dependency health
+        run: flutter pub outdated --no-dev-dependencies

@@ -1,10 +1,7 @@
-import 'dart:typed_data';
-
 import 'package:ar_flutter_plugin_2/models/ar_anchor.dart';
 import 'package:ar_flutter_plugin_2/models/ar_node.dart';
 import 'package:ar_flutter_plugin_2/utils/json_converters.dart';
 import 'package:flutter/services.dart';
-import 'package:vector_math/vector_math_64.dart';
 
 // Type definitions to enforce a consistent use of the API
 typedef NodeTapResultHandler = void Function(List<String> nodes);
@@ -31,6 +28,7 @@ class ARObjectManager {
   NodeRotationStartHandler? onRotationStart;
   NodeRotationChangeHandler? onRotationChange;
   NodeRotationEndHandler? onRotationEnd;
+  final Map<String, VoidCallback> _transformListeners = {};
 
   ARObjectManager(int id, {this.debug = false}) {
     _channel = MethodChannel('arobjects_$id');
@@ -52,9 +50,9 @@ class ARObjectManager {
         case 'onNodeTap':
           if (onNodeTap != null) {
             final tappedNodes = call.arguments as List<dynamic>;
-            onNodeTap!(tappedNodes
-                .map((tappedNode) => tappedNode.toString())
-                .toList());
+            onNodeTap!(
+              tappedNodes.map((tappedNode) => tappedNode.toString()).toList(),
+            );
           }
           break;
         case 'onPanStart':
@@ -74,8 +72,9 @@ class ARObjectManager {
         case 'onPanEnd':
           if (onPanEnd != null) {
             final tappedNodeName = call.arguments["name"] as String;
-            final transform =
-                MatrixConverter().fromJson(call.arguments['transform'] as List);
+            final transform = MatrixConverter().fromJson(
+              call.arguments['transform'] as List,
+            );
 
             // Notify callback
             onPanEnd!(tappedNodeName, transform);
@@ -96,8 +95,9 @@ class ARObjectManager {
         case 'onRotationEnd':
           if (onRotationEnd != null) {
             final tappedNodeName = call.arguments["name"] as String;
-            final transform =
-                MatrixConverter().fromJson(call.arguments['transform'] as List);
+            final transform = MatrixConverter().fromJson(
+              call.arguments['transform'] as List,
+            );
 
             // Notify callback
             onRotationEnd!(tappedNodeName, transform);
@@ -122,27 +122,53 @@ class ARObjectManager {
   /// Add given node to the given anchor of the underlying AR scene (or to its top-level if no anchor is given) and listen to any changes made to its transformation
   Future<bool?> addNode(ARNode node, {ARPlaneAnchor? planeAnchor}) async {
     try {
-      node.transformNotifier.addListener(() {
+      _removeTransformListener(node);
+      final listener = () {
         _channel.invokeMethod<void>('transformationChanged', {
           'name': node.name,
-          'transformation':
-              MatrixValueNotifierConverter().toJson(node.transformNotifier)
+          'transformation': MatrixValueNotifierConverter().toJson(
+            node.transformNotifier,
+          ),
         });
-      });
+      };
+      _transformListeners[node.name] = listener;
+      node.transformNotifier.addListener(listener);
       if (planeAnchor != null) {
         planeAnchor.childNodes.add(node.name);
-        return await _channel.invokeMethod<bool>('addNodeToPlaneAnchor',
-            {'node': node.toMap(), 'anchor': planeAnchor.toJson()});
+        final added = await _channel.invokeMethod<bool>(
+          'addNodeToPlaneAnchor',
+          {'node': node.toMap(), 'anchor': planeAnchor.toJson()},
+        );
+        if (added != true) {
+          _removeTransformListener(node);
+        }
+        return added;
       } else {
-        return await _channel.invokeMethod<bool>('addNode', node.toMap());
+        final added = await _channel.invokeMethod<bool>(
+          'addNode',
+          node.toMap(),
+        );
+        if (added != true) {
+          _removeTransformListener(node);
+        }
+        return added;
       }
-    } on PlatformException catch (e) {
+    } on PlatformException {
+      _removeTransformListener(node);
       return false;
     }
   }
 
   /// Remove given node from the AR Scene
-  removeNode(ARNode node) {
-    _channel.invokeMethod<String>('removeNode', {'name': node.name});
+  Future<void> removeNode(ARNode node) async {
+    _removeTransformListener(node);
+    await _channel.invokeMethod<void>('removeNode', {'name': node.name});
+  }
+
+  void _removeTransformListener(ARNode node) {
+    final listener = _transformListeners.remove(node.name);
+    if (listener != null) {
+      node.transformNotifier.removeListener(listener);
+    }
   }
 }
