@@ -1,4 +1,4 @@
-package com.uhg0.ar_flutter_plugin_2.Serialization
+package com.flutterreality.flutter_reality.Serialization
 
 import com.google.ar.core.HitResult
 import com.google.ar.core.Plane

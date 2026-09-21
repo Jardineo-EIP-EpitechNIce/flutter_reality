@@ -1,5 +1,5 @@
-import 'package:ar_flutter_plugin_2/datatypes/hittest_result_types.dart';
-import 'package:ar_flutter_plugin_2/models/ar_hittest_result.dart';
+import 'package:flutter_reality/datatypes/hittest_result_types.dart';
+import 'package:flutter_reality/models/ar_hittest_result.dart';
 
 /// Picks which hit-test result a tap should place a model on.
 ///

@@ -1,13 +1,13 @@
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
-import 'package:ar_flutter_plugin_2/ar_flutter_plugin.dart';
-import 'package:ar_flutter_plugin_2/datatypes/node_types.dart';
-import 'package:ar_flutter_plugin_2/managers/ar_object_manager.dart';
-import 'package:ar_flutter_plugin_2/models/ar_node.dart';
+import 'package:flutter_reality/ar_flutter_plugin.dart';
+import 'package:flutter_reality/datatypes/node_types.dart';
+import 'package:flutter_reality/managers/ar_object_manager.dart';
+import 'package:flutter_reality/models/ar_node.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 void main() {
-  const MethodChannel channel = MethodChannel('ar_flutter_plugin_2');
+  const MethodChannel channel = MethodChannel('flutter_reality');
 
   TestWidgetsFlutterBinding.ensureInitialized();
 

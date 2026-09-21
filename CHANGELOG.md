@@ -1,4 +1,7 @@
 # Changelog
+## Unreleased
+* BREAKING: renamed the package from `ar_flutter_plugin_2` to `flutter_reality` (pubspec name, Dart imports, Android namespace `com.uhg0.ar_flutter_plugin_2` → `com.flutterreality.flutter_reality`, iOS pod `ar_flutter_plugin_2` → `flutter_reality`, and the internal platform-view/method-channel identifier). Consumers need to update their `pubspec.yaml` dependency name and `import 'package:flutter_reality/...'` statements. The version number is left as-is here; it will be bumped when this is published (see the project roadmap's publication step).
+
 ## 0.0.3
 * Solved the issue "Failed to RegisterNatives with FlutterJNI" mentioned here : https://github.com/hlefe/ar_flutter_plugin_2/issues/1#issuecomment-2676352087
 

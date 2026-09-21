@@ -1,6 +1,6 @@
 import 'package:ar_flutter_example/hit_test_selection.dart';
-import 'package:ar_flutter_plugin_2/datatypes/hittest_result_types.dart';
-import 'package:ar_flutter_plugin_2/models/ar_hittest_result.dart';
+import 'package:flutter_reality/datatypes/hittest_result_types.dart';
+import 'package:flutter_reality/models/ar_hittest_result.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:vector_math/vector_math_64.dart';
 

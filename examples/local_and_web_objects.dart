@@ -7,14 +7,14 @@ import 'package:flutter/material.dart';
 // DO NOT REMOVE OR MODIFY THE CODE ABOVE!
 
 //AR Flutter Plugin
-import 'package:ar_flutter_plugin_2/managers/ar_location_manager.dart';
-import 'package:ar_flutter_plugin_2/managers/ar_session_manager.dart';
-import 'package:ar_flutter_plugin_2/managers/ar_object_manager.dart';
-import 'package:ar_flutter_plugin_2/managers/ar_anchor_manager.dart';
-import 'package:ar_flutter_plugin_2/ar_flutter_plugin.dart';
-import 'package:ar_flutter_plugin_2/datatypes/config_planedetection.dart';
-import 'package:ar_flutter_plugin_2/datatypes/node_types.dart';
-import 'package:ar_flutter_plugin_2/models/ar_node.dart';
+import 'package:flutter_reality/managers/ar_location_manager.dart';
+import 'package:flutter_reality/managers/ar_session_manager.dart';
+import 'package:flutter_reality/managers/ar_object_manager.dart';
+import 'package:flutter_reality/managers/ar_anchor_manager.dart';
+import 'package:flutter_reality/ar_flutter_plugin.dart';
+import 'package:flutter_reality/datatypes/config_planedetection.dart';
+import 'package:flutter_reality/datatypes/node_types.dart';
+import 'package:flutter_reality/models/ar_node.dart';
 
 //Other custom imports
 import 'dart:io';

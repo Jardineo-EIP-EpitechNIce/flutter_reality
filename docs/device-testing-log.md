@@ -47,7 +47,7 @@ surfaced to Dart (`onError` is never called) and logcat shows no
 exception: the failure is silent.
 
 **Suspected cause:** `ArView.kt` passes the Activity's `Lifecycle` to
-`ARSceneView` as `sharedLifecycle` (see `android/src/main/kotlin/com/uhg0/ar_flutter_plugin_2/ArView.kt`),
+`ARSceneView` as `sharedLifecycle` (see `android/src/main/kotlin/com/flutterreality/flutter_reality/ArView.kt`),
 so pause/resume of the GL surface and ARCore session is handled
 automatically inside `io.github.sceneview:arsceneview:2.2.1`
 (`android/build.gradle:54`). That library version predates Android 17 and
@@ -129,7 +129,7 @@ over how they were linked. A real fix needs one of:
 Wired `ARSceneView.onSessionFailed` (previously unused; exposed by the
 library but never connected) through to Dart's `onError`, so a native
 session failure is no longer silent
-(`android/src/main/kotlin/com/uhg0/ar_flutter_plugin_2/ArView.kt`). Re-ran
+(`android/src/main/kotlin/com/flutterreality/flutter_reality/ArView.kt`). Re-ran
 the exact background/foreground repro to check it: no crash, but also no
 `onError` fired — and the status text reset to the very first message
 ("AR session ready. Move the device to scan surfaces.", 0 planes), even
@@ -159,7 +159,7 @@ existing view.
 
 Added logging to `ArViewFactory.create`, `ArView`'s init block, and
 `ArFlutterPlugin`'s activity-lifecycle callbacks
-(`android/src/main/kotlin/com/uhg0/ar_flutter_plugin_2/ArViewFactory.kt`,
+(`android/src/main/kotlin/com/flutterreality/flutter_reality/ArViewFactory.kt`,
 `ArView.kt`, `ArFlutterPlugin.kt`) to check the view-recreation theory
 above directly instead of inferring it from Dart-side state. Re-running
 the repro with a *fast* background → foreground cycle (a couple of
@@ -233,3 +233,26 @@ Still open:
 - iOS/ARKit has its own lifecycle to verify (`IosARView.swift`) — nothing
   in this session touched or tested it; still fully open per "Not yet
   tested" below.
+
+### New minor finding: `MissingPluginException` on the very first `arobjects_$id` call
+
+Package/namespace rename (`ar_flutter_plugin_2` → `flutter_reality`,
+`com.uhg0.ar_flutter_plugin_2` → `com.flutterreality.flutter_reality`)
+required a full clean reinstall to validate — this surfaced a startup
+race independent of the rename (the `arobjects_$id`/`arsession_$id`/
+`aranchors_$id` channel names are unchanged): on a fresh platform-view
+creation, `ARObjectManager.onInitialize()`'s `init` call sometimes reaches
+the native side (`ArView.kt`) before `objectChannel.setMethodCallHandler`
+has taken effect, throwing an uncaught `MissingPluginException` visible in
+the debug console. Reproduced 3/3 times after the Hybrid Composition
+switch (not confirmed whether it also happened before that change).
+
+**Not functionally blocking**: subsequent calls on the same channel (e.g.
+`addNode` from tapping to place a model) worked correctly moments later
+in every run — plane detection, tap-to-place, remove-last-model, and the
+background/foreground fix all still worked end-to-end after this
+exception. Left unfixed this session (out of scope for a rename task),
+but worth a real fix later: either have Dart await platform-view-created
+confirmation before calling `onInitialize()`, or make the native `init`
+handler tolerant of being invoked implicitly once registered (it isn't
+dropping state today, since addNode works right after).

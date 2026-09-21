@@ -1,4 +1,4 @@
-group 'com.uhg0.ar_flutter_plugin_2'
+group 'com.flutterreality.flutter_reality'
 version '1.0-SNAPSHOT'
 
 buildscript {
@@ -28,7 +28,7 @@ apply plugin: 'kotlin-android'
 
 android {
     compileSdk 34
-    namespace 'com.uhg0.ar_flutter_plugin_2'
+    namespace 'com.flutterreality.flutter_reality'
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17

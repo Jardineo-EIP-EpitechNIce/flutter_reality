@@ -249,7 +249,7 @@ Common interaction methods include:
 
    ```yaml
    dependencies:
-     ar_flutter_plugin_2: ^0.0.3
+     flutter_reality: ^0.0.3
    ```
 
 2. **Add Camera Permissions on iOS**
@@ -264,7 +264,7 @@ Common interaction methods include:
 3. **Import and Place the `ARView`:**
 
    ```dart
-   import 'package:ar_flutter_plugin_2/ar_flutter_plugin.dart';
+   import 'package:flutter_reality/ar_flutter_plugin.dart';
 
    class MyARPage extends StatefulWidget { ... }
 
@@ -370,7 +370,7 @@ The repository’s `examples` folder contains many examples, such as `cloud_anch
 
 ## Summary
 
-The `ar_flutter_plugin_2` builds an easy-to-use API on the Flutter side using several managers (`ARSessionManager`, `ARObjectManager`, `ARAnchorManager`, `ARLocationManager`, etc.) to manage the underlying native AR SDKs (with Android using SceneView + ARCore and iOS using ARKit + ARCore Cloud Anchors). The key features include:
+The `flutter_reality` plugin builds an easy-to-use API on the Flutter side using several managers (`ARSessionManager`, `ARObjectManager`, `ARAnchorManager`, `ARLocationManager`, etc.) to manage the underlying native AR SDKs (with Android using SceneView + ARCore and iOS using ARKit + ARCore Cloud Anchors). The key features include:
 
 - Plane detection and rendering
 - 3D model loading (local, web, or app file system)
@@ -383,7 +383,7 @@ The main steps for using the plugin are: add the dependency, configure camera pe
 For more detailed information, please refer to:
 
 - The examples contained in the `examples/` folder
-- [cloudAnchorSetup.md](https://github.com/hlefe/ar_flutter_plugin_2/blob/main/cloudAnchorSetup.md) for details on Cloud Anchors
+- [cloudAnchorSetup.md](../cloudAnchorSetup.md) for details on Cloud Anchors
 - The default `README.md` and source code comments
 
 If you wish to customize the underlying implementation, you can further modify the native code for Android (`ArView.kt` / `ArViewFactory.kt`) or iOS (`IosARView.swift` / `CloudAnchorHandler.swift`). The plugin is currently under continuous development, and contributions via Issues or PRs are very welcome.

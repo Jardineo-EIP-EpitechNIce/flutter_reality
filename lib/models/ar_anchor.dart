@@ -1,5 +1,5 @@
-import 'package:ar_flutter_plugin_2/datatypes/anchor_types.dart';
-import 'package:ar_flutter_plugin_2/utils/json_converters.dart';
+import 'package:flutter_reality/datatypes/anchor_types.dart';
+import 'package:flutter_reality/utils/json_converters.dart';
 import 'package:vector_math/vector_math_64.dart';
 import 'package:flutter/widgets.dart';
 

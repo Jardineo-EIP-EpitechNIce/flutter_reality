@@ -1,5 +1,5 @@
-# ar_flutter_plugin_2
-[![pub package](https://img.shields.io/pub/v/ar_flutter_plugin_2.svg)](https://pub.dev/packages/ar_flutter_plugin_2)
+# flutter_reality
+[![pub package](https://img.shields.io/pub/v/flutter_reality.svg)](https://pub.dev/packages/flutter_reality)
 
 
 
@@ -74,7 +74,7 @@ of `flutter run -v` output.
 
 
 <b>❤️ I invite you to collaborate and contribute to the improvement of this plugin.</b><br>
-To contribute code and discuss ideas, [create a pull request](https://github.com/hlefe/ar_flutter_plugin_2/compare), [open an issue](https://github.com/hlefe/ar_flutter_plugin_2/issues/new), or [start a discussion](https://github.com/hlefe/ar_flutter_plugin_2/discussions).
+To contribute code and discuss ideas, [create a pull request](https://github.com/Jardineo-EIP-EpitechNIce/flutter_reality/compare), [open an issue](https://github.com/Jardineo-EIP-EpitechNIce/flutter_reality/issues/new), or [start a discussion](https://github.com/Jardineo-EIP-EpitechNIce/flutter_reality/discussions).
 
 ## Fluterflow demo app
 <table>
@@ -92,14 +92,14 @@ To contribute code and discuss ideas, [create a pull request](https://github.com
 Add the Flutter package to your project by running:
 
 ```bash
-flutter pub add ar_flutter_plugin_2
+flutter pub add flutter_reality
 ```
 
 Or manually add this to your `pubspec.yaml` file (and run `flutter pub get`):
 
 ```yaml
 dependencies:
-  ar_flutter_plugin_2: ^0.0.3
+  flutter_reality: ^0.0.3
 ```
 
 Or in FlutterFlow : 
@@ -108,7 +108,7 @@ Or in FlutterFlow :
 <td>
 <img src="https://avatars.githubusercontent.com/u/74943865?s=48&amp;v=4" width="30" height="30" style="max-width: 100%; margin-bottom: -9px;"> </img>
 </td>
-<td> Simply add : <br> <b>ar_flutter_plugin_2: ^0.0.3 </b> <br> in pubspecs dependencies of your widget.
+<td> Simply add : <br> <b>flutter_reality: ^0.0.3 </b> <br> in pubspecs dependencies of your widget.
 </td>
 </table>
 
@@ -117,7 +117,7 @@ Or in FlutterFlow :
 Add this to your code:
 
 ```dart
-import 'package:ar_flutter_plugin_2/ar_flutter_plugin.dart';
+import 'package:flutter_reality/ar_flutter_plugin.dart';
 ```
 ## IOS Permissions
 * To prevent your application from crashing when launching augmented reality on iOS, you need to add the following permission to the Info.plist file (located under ios/Runner) :

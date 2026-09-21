@@ -1,6 +1,6 @@
 //
 //  JWTGenerator.swift
-//  ar_flutter_plugin_2
+//  flutter_reality
 //
 //  Created by Hugo Lefèvre on 07.02.25.
 //

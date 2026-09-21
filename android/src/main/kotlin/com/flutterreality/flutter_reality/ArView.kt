@@ -1,4 +1,4 @@
-package com.uhg0.ar_flutter_plugin_2
+package com.flutterreality.flutter_reality
 
 import android.app.Activity
 import android.content.Context
@@ -20,8 +20,8 @@ import com.google.ar.core.Frame
 import com.google.ar.core.Plane
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
-import com.uhg0.ar_flutter_plugin_2.Serialization.deserializeMatrix4
-import com.uhg0.ar_flutter_plugin_2.Serialization.serializeHitResult
+import com.flutterreality.flutter_reality.Serialization.deserializeMatrix4
+import com.flutterreality.flutter_reality.Serialization.serializeHitResult
 import io.flutter.plugin.common.BinaryMessenger
 import io.flutter.plugin.common.MethodCall
 import io.flutter.plugin.common.MethodChannel

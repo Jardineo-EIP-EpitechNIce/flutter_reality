@@ -1,5 +1,5 @@
 name: ar_flutter_example
-description: A small application for manually testing ar_flutter_plugin_2 on a real AR-capable device.
+description: A small application for manually testing flutter_reality on a real AR-capable device.
 # The following line prevents the package from being accidentally published to
 # pub.dev using `flutter pub publish`. This is preferred for private packages.
 publish_to: 'none' # Remove this line if you wish to publish to pub.dev
@@ -30,7 +30,7 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
-  ar_flutter_plugin_2:
+  flutter_reality:
     path: ..
   vector_math: ^2.1.1
 

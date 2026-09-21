@@ -1,4 +1,4 @@
-package com.uhg0.ar_flutter_plugin_2
+package com.flutterreality.flutter_reality
 
 import android.app.Activity
 import android.util.Log
@@ -32,7 +32,7 @@ class ArFlutterPlugin: FlutterPlugin, ActivityAware {
         // Enregistrer la factory une fois que nous avons l'activité et le lifecycle
         flutterPluginBinding?.let { flutterBinding ->
             flutterBinding.platformViewRegistry.registerViewFactory(
-                "ar_flutter_plugin_2",
+                "flutter_reality",
                 ArViewFactory(
                     messenger = flutterBinding.binaryMessenger,
                     activity = activity!!,
@@ -56,7 +56,7 @@ class ArFlutterPlugin: FlutterPlugin, ActivityAware {
         // Réenregistrer la factory après les changements de configuration
         flutterPluginBinding?.let { flutterBinding ->
             flutterBinding.platformViewRegistry.registerViewFactory(
-                "ar_flutter_plugin_2",
+                "flutter_reality",
                 ArViewFactory(
                     messenger = flutterBinding.binaryMessenger,
                     activity = activity!!,

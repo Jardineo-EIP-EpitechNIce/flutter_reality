@@ -1,4 +1,4 @@
-package com.uhg0.ar_flutter_plugin_2
+package com.flutterreality.flutter_reality
 
 import android.view.View
 import android.view.animation.Animation
