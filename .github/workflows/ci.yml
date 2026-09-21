@@ -32,7 +32,9 @@ jobs:
           lib/managers/ar_object_manager.dart
           test/ar_flutter_plugin_test.dart
           example/lib/main.dart
+          example/lib/hit_test_selection.dart
           example/test/widget_test.dart
+          example/test/hit_test_selection_test.dart
 
       - name: Analyze package and example
         run: flutter analyze --no-fatal-warnings --no-fatal-infos lib test example/lib
