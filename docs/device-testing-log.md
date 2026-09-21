@@ -33,17 +33,14 @@ still outstanding (no iPhone available in this session).
   vertical plane (confirmed visually on-device), and tapping it places a
   model correctly oriented against the wall rather than lying flat as it
   would on a horizontal surface.
-- Pan and rotation gestures on placed nodes: enabled `handlePans` and
-  `handleRotation` in the example app (`example/lib/main.dart`, both were
-  `false` before — the gesture path had never actually been exercised)
-  and wired `ARObjectManager.onPanEnd`/`onRotationEnd` to the status
-  card. Dragging a node updates its position and fires `onPanEnd`; the
-  two-finger rotation gesture fires `onRotationEnd` too, confirmed via
-  the status text reading "Rotated model." after the gesture — the visual
-  rotation itself is easy to miss on a duck model since it doesn't have a
-  strongly asymmetric silhouette from most angles, which is why it
-  initially looked like rotation "didn't work" until the status text was
-  checked directly.
+- Pan and rotation gestures on placed nodes, after a real fix (see
+  "Rotation gesture did nothing visually" below) — dragging a node
+  (touch and hold on it, then move the device so the raycast tracks a
+  new surface point, not a finger swipe while the device stays still —
+  see that section for why) relocates it via `AnchorNode`'s own
+  move-and-recreate-anchor mechanism; the two-finger twist gesture
+  visibly rotates it now. Both fire `onPanEnd`/`onRotationEnd`, wired to
+  the status card in the example app (`example/lib/main.dart`).
 
 ## Bugs found
 
@@ -295,3 +292,81 @@ unjustified complexity.
 remove-last-model work immediately (not just "moments later"), and a
 background/foreground cycle afterward still renders the camera correctly
 with the same process pid throughout.
+
+### Rotation gesture did nothing visually — FIXED, with a regression along the way
+
+After enabling `handleRotation` (see "What works" above), the status card
+did read "Rotated model." after a two-finger twist, which was initially
+taken as confirmation the gesture worked and the rotation was just hard
+to see on a near-symmetric duck model. On a closer test asking
+specifically "does the model visibly rotate", the answer was no — not
+even with a real twist gesture, not just a slide. The status card firing
+was real (the native `onRotateEnd` callback did run) but the model's
+actual orientation never changed.
+
+**Root cause**, found by decompiling the exact `arsceneview:2.2.1` AAR
+classes with [CFR](https://github.com/leibnitz27/cfr) (the library's
+GitHub source uses a newer, differently-organized API than 2.2.1, so
+reading `main` branch source directly would have been misleading):
+`io.github.sceneview.node.Node` gates `isRotationEditable`/
+`isPositionEditable`/`isScaleEditable` behind a separate `isEditable`
+master flag — the actual getters are `isEditable() && field`. This
+plugin's `ArView.kt` was setting `isRotationEditable = handleRotation`
+but never setting `isEditable`, so the getter always evaluated to
+`false` regardless, and the base `Node.onRotate(detector, e)`
+implementation's very first check (`if (this.isRotationEditable())`)
+always failed — silently falling through to delegate to the parent node,
+which does nothing with rotation. This matches a known upstream report
+([SceneView/sceneview-android#100](https://github.com/SceneView/sceneview-android/issues/100),
+closed stale in 2022 without a confirmed fix landing) describing rotation
+"confused with" scale gesture handling.
+
+**Fix:** set `isEditable = handleRotation` alongside
+`isRotationEditable = handleRotation` in the node's `.apply {}` block
+(`ArView.kt`).
+
+**Regression introduced by that fix, then corrected:** `isEditable = true`
+also unmasks `isScaleEditable`'s getter, which defaults to `true` in the
+base class and isn't exposed as a Dart-configurable option in this
+plugin at all — pinch-to-zoom started working but scaled the model
+exponentially with no bound, an uncontrolled capability this plugin
+never tested or intended to expose. Fixed by explicitly setting
+`isScaleEditable = false`.
+
+That second fix caused a *third* regression: dragging a placed model
+(pan) stopped working entirely. Root cause, again found by decompiling
+(this time `AnchorNode`, the parent of the placed model, from the
+`arsceneview` AAR): `AnchorNode` overrides `isPositionEditable` with its
+own independent field, hardcoded to `true` in its constructor — it is
+never gated by `isEditable` at all. Panning was always working via
+delegation: the base `Node.onMove(detector, e)` checks the *child*
+node's `isPositionEditable()`, and since that was `false` before any of
+this session's changes (same `isEditable` gating as rotation), it always
+delegated to the parent `AnchorNode`, whose overridden `onMoveBegin`/
+`onMoveEnd` detach and recreate the anchor at the new position — moving
+the model by moving its anchor, not by editing the model node's own
+local transform. Setting `isEditable = true` on the child (done for the
+rotation fix) unmasked the child's own `isPositionEditable` getter,
+which — because nothing had ever explicitly set that field to `true` —
+still evaluated to `false`... except the code as written at that point
+also explicitly set `isPositionEditable = handlePans` (`true`), which
+switched pan from the reliable anchor-delegation path to the base
+class's local-node path. That path requires the touch's raycast hit
+result's node to equal `this.getParent()` by reference, a condition that
+doesn't hold for this plugin's node hierarchy in practice, so every pan
+attempt silently failed at that check.
+
+**Final fix:** stopped setting `isPositionEditable` at all on the model
+node, leaving it at its default (`false`), which keeps pan on the
+anchor-delegation path that was already working. Only `isEditable`
+(needed for rotation) and `isRotationEditable`/`isScaleEditable` are set
+explicitly now.
+
+**Verified on the Pixel 9a**, after each of the three fixes above, in
+this final state: two-finger twist visibly rotates the model; dragging
+(touch and hold the model, then move the device so the tracked surface
+point under it changes — not a finger swipe with the device held still,
+which is how this plugin's pan has always worked, via the anchor being
+recreated at the new hit location) visibly relocates it; pinch does
+nothing (deliberately, since scale isn't a supported/tested capability
+of this plugin).

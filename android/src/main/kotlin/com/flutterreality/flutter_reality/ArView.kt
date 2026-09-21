@@ -299,8 +299,29 @@ class ArView(
                         }
                     }
                 }.apply {
-                    isPositionEditable = handlePans
+                    // isRotationEditable is gated behind isEditable in the sceneview library
+                    // (isRotationEditable getter == isEditable && field), so without setting
+                    // isEditable it always evaluates to false and the library's own gesture
+                    // arbitration between rotate/scale never resolves in rotate's favor (see
+                    // https://github.com/SceneView/sceneview-android/issues/100).
+                    isEditable = handleRotation
                     isRotationEditable = handleRotation
+                    // Deliberately NOT setting isPositionEditable here. Pan already works by a
+                    // different route: the base Node.onMove(detector, e) delegates to the
+                    // parent (AnchorNode) whenever isPositionEditable() is false, and AnchorNode
+                    // hardcodes its own isPositionEditable to true in its constructor -
+                    // dragging actually moves/recreates the anchor, not this node's local
+                    // transform. Setting isEditable above (needed for rotation) would also
+                    // unmask isPositionEditable's getter if its field were true, switching pan
+                    // to a local-hit-test code path that requires the raycast hit's node to
+                    // equal this node's parent - which doesn't hold in practice and silently
+                    // breaks dragging. Leaving the field at its default (false) keeps pan on
+                    // the anchor-delegation path that already works.
+                    // isScaleEditable defaults to true in the base Node class, and setting
+                    // isEditable above unmasks it: since this plugin doesn't expose a
+                    // handleScale flag (no Dart-side control over it, no tests for it), leave
+                    // pinch-to-scale off rather than ship an uncontrolled, untested capability.
+                    isScaleEditable = false
                     name = nodeData["name"] as? String
                 }
             } ?: run {
