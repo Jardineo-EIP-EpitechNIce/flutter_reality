@@ -1,5 +1,4 @@
 import 'dart:math' show sqrt;
-import 'dart:typed_data';
 
 import 'package:flutter_reality/datatypes/config_planedetection.dart';
 import 'package:flutter_reality/models/ar_anchor.dart';

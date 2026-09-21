@@ -128,14 +128,15 @@ class ARObjectManager {
   Future<bool?> addNode(ARNode node, {ARPlaneAnchor? planeAnchor}) async {
     try {
       _removeTransformListener(node);
-      final listener = () {
+      void listener() {
         _channel.invokeMethod<void>('transformationChanged', {
           'name': node.name,
           'transformation': MatrixValueNotifierConverter().toJson(
             node.transformNotifier,
           ),
         });
-      };
+      }
+
       _transformListeners[node.name] = listener;
       node.transformNotifier.addListener(listener);
       if (planeAnchor != null) {

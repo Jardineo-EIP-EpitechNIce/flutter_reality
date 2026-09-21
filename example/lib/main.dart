@@ -18,7 +18,7 @@ void main() {
 }
 
 class ArExampleApp extends StatelessWidget {
-  const ArExampleApp({Key? key}) : super(key: key);
+  const ArExampleApp({super.key});
 
   @override
   Widget build(BuildContext context) {
@@ -42,7 +42,7 @@ class _PlacedModel {
 }
 
 class ArHomePage extends StatefulWidget {
-  const ArHomePage({Key? key}) : super(key: key);
+  const ArHomePage({super.key});
 
   @override
   State<ArHomePage> createState() => _ArHomePageState();

@@ -5,8 +5,7 @@ import 'dart:async';
 import 'package:flutter/services.dart';
 
 class ArFlutterPlugin {
-  static const MethodChannel _channel =
-      const MethodChannel('flutter_reality');
+  static const MethodChannel _channel = const MethodChannel('flutter_reality');
 
   /// Private constructor to prevent accidental instantiation of the Plugin using the implicit default constructor
   ArFlutterPlugin._();
