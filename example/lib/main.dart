@@ -113,8 +113,16 @@ class _ArHomePageState extends State<ArHomePage> {
       showPlanes: true,
       showFeaturePoints: false,
       handleTaps: true,
+      handlePans: true,
+      handleRotation: true,
     );
     objectManager.onInitialize();
+    objectManager.onPanEnd = (name, transform) {
+      setState(() => _status = 'Moved model.');
+    };
+    objectManager.onRotationEnd = (name, transform) {
+      setState(() => _status = 'Rotated model.');
+    };
     setState(
         () => _status = 'AR session ready. Move the device to scan surfaces.');
   }

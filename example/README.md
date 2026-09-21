@@ -15,6 +15,10 @@ match — lives in [`lib/hit_test_selection.dart`](lib/hit_test_selection.dart)
 and is covered by
 [`test/hit_test_selection_test.dart`](test/hit_test_selection_test.dart).
 
+Placed models can also be dragged (pan) and rotated with a two-finger
+twist; the status card reports "Moved model."/"Rotated model." when a
+gesture completes.
+
 ## Run
 
 From the repository root:

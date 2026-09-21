@@ -29,6 +29,21 @@ still outstanding (no iPhone available in this session).
 - Backgrounding the app (home button) cleanly closes the camera
   (`WindowManager: AppCompatCamera ... Camera 0 is closed`), no error
   logged.
+- Vertical plane detection: pointing the device at a wall detects a
+  vertical plane (confirmed visually on-device), and tapping it places a
+  model correctly oriented against the wall rather than lying flat as it
+  would on a horizontal surface.
+- Pan and rotation gestures on placed nodes: enabled `handlePans` and
+  `handleRotation` in the example app (`example/lib/main.dart`, both were
+  `false` before — the gesture path had never actually been exercised)
+  and wired `ARObjectManager.onPanEnd`/`onRotationEnd` to the status
+  card. Dragging a node updates its position and fires `onPanEnd`; the
+  two-finger rotation gesture fires `onRotationEnd` too, confirmed via
+  the status text reading "Rotated model." after the gesture — the visual
+  rotation itself is easy to miss on a duck model since it doesn't have a
+  strongly asymmetric silhouette from most angles, which is why it
+  initially looked like rotation "didn't work" until the status text was
+  checked directly.
 
 ## Bugs found
 
@@ -200,10 +215,6 @@ through this investigation).
 ## Not yet tested
 
 - iOS / ARKit (no iPhone available in this session).
-- Vertical plane detection specifically (only horizontal surfaces were
-  used in this session).
-- Gesture-based pan/rotate on placed nodes (not wired into the example
-  app yet).
 
 ## Next steps (step 3 of the roadmap)
 
