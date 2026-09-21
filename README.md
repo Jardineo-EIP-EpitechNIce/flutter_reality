@@ -60,17 +60,83 @@ flutter analyze lib test example/lib
 flutter test --no-pub
 ```
 
-Run the manual test app on a physical device:
+### Running the example app on a physical device
 
-```bash
-cd example
-flutter pub get
-flutter run
-```
+The [example app](./example) is a small AR scene: it requests camera
+permission, shows detected planes, places a model on tap, and lets you
+drag/rotate it or remove the last one placed. See its own
+[README](example/README.md) for what it exercises in more detail.
+
+1. Connect an ARCore-certified Android device (or an ARKit-capable iPhone)
+   over USB, with USB debugging / developer mode enabled, and confirm it's
+   detected: `flutter devices` should list it.
+2. From the repository root:
+   ```bash
+   cd example
+   flutter pub get
+   flutter run
+   ```
+3. On first launch, grant the camera permission prompt. The status card at
+   the bottom of the screen will read "AR session ready" once
+   initialization completes.
+4. Move the device slowly over a textured, well-lit surface (floor, desk,
+   or wall) until the status card reports a detected plane.
+5. Tap a detected surface to place a model. Drag it (touch and hold, then
+   move the device) to reposition it, use a two-finger twist to rotate it,
+   or tap "Remove last model" to take it back out.
+
+**Simulators, emulators, and desktop builds cannot run this** — there's no
+camera or motion tracking to feed ARCore/ARKit. Use `flutter run` against a
+real, connected device.
 
 When reporting a problem, include the device model, OS version, Flutter version,
 steps to reproduce, expected behavior, actual behavior, and the relevant section
 of `flutter run -v` output.
+
+### Troubleshooting
+
+**Camera permission prompt doesn't appear, or the app is stuck on "Waiting
+for camera permission..."**
+Check that the permission is actually declared: Android apps inherit it
+from this plugin's manifest automatically, but iOS apps need
+`NSCameraUsageDescription` in their own `Info.plist` (see
+[iOS Permissions](#ios-permissions) above) or the OS silently refuses to
+show the prompt. If you previously denied the permission, it won't
+re-prompt — grant it from the OS app settings instead.
+
+**The AR view is black even though permission was granted**
+Confirm the device is actually AR-capable (see
+[Requirements and device compatibility](#requirements-and-device-compatibility)
+above) — a non-ARCore/ARKit device or an emulator will get this far and
+still show nothing, since there's no real camera feed to track. On
+Android, if you're embedding the AR view yourself rather than using this
+plugin's `ARView` widget as-is, make sure your `AndroidView` requests true
+Hybrid Composition (see `lib/widgets/ar_view.dart` for the pattern) — the
+underlying `ARSceneView` is a `SurfaceView`, and Flutter's other platform
+view composition modes don't reliably keep a `SurfaceView`'s rendering
+surface attached, especially after the app returns from the background.
+
+**No planes are ever detected**
+Move the device slowly and continuously over the surface — ARCore/ARKit
+need a few seconds of parallax motion to build a depth estimate. Plain,
+reflective, transparent, or very dark surfaces (glass tables, mirrors,
+glossy floors, plain white walls in low light) are hard or impossible to
+track; try a textured surface with good, even lighting instead.
+
+**A tap doesn't place a model, or the status shows "No plane or point
+detected under the tap"**
+The tap needs to land on an area ARCore/ARKit has already registered as a
+tracked plane or feature point — tapping empty space or an
+not-yet-detected area won't hit-test successfully. Wait for the plane
+detection status to update first, then tap within the area that's been
+scanned.
+
+**A model doesn't load / addNode returns false**
+Check `flutter run -v`'s output for the actual native error — the model
+`uri` needs to point to an asset that's registered in your app's
+`pubspec.yaml` `assets:` section (for `NodeType.localGLTF2`) or a reachable
+URL (for `NodeType.webGLB`); a typo'd path or an unregistered asset fails
+silently from the UI's perspective but logs the real reason natively.
 
 
 <b>❤️ I invite you to collaborate and contribute to the improvement of this plugin.</b><br>
@@ -119,6 +185,45 @@ Add this to your code:
 ```dart
 import 'package:flutter_reality/ar_flutter_plugin.dart';
 ```
+
+## Requirements and device compatibility
+
+| | Android | iOS |
+| --- | --- | --- |
+| Minimum OS version | API 28 (Android 9) | iOS 13 |
+| AR framework | [ARCore](https://developers.google.com/ar/devices) | ARKit (built into iOS, no separate install) |
+| Runtime dependency | [Google Play Services for AR](https://play.google.com/store/apps/details?id=com.google.ar.core) must be installed — Play Store installs/updates it automatically on ARCore-certified devices | none beyond the OS itself |
+| Device certification | Device must be on Google's [ARCore supported devices list](https://developers.google.com/ar/devices) | Device needs an A9 chip or newer (iPhone 6s / iPad 2017 and later) |
+
+Notes from testing this plugin on real hardware (see
+[`docs/device-testing-log.md`](docs/device-testing-log.md) for the full
+session):
+
+* `android/src/main/AndroidManifest.xml` declares
+  `<uses-feature android:name="android.hardware.camera.ar" android:required="true"/>`.
+  This means **Google Play will hide your app entirely** from devices
+  that don't support ARCore — it won't show up in search or as
+  installable. This is usually what you want for an AR-only app; if your
+  app also has a non-AR mode, override this feature to
+  `android:required="false"` in your own app's manifest and check AR
+  availability at runtime instead.
+* Desktop, web, and plain Android/iOS simulators or emulators cannot run
+  an AR session — there's no camera or motion sensor to track. Use a
+  physical device.
+* Devices without Google Play Services (common on some China-market
+  Android phones) cannot install Google Play Services for AR and will
+  not be able to run this plugin on Android, even if the SoC would
+  otherwise support ARCore.
+* On Android devices with 16 KB memory pages (mandatory for new devices
+  launching with Android 15+, e.g. recent Pixels), you may see a debug
+  "App compatibility" warning about native libraries not being 16 KB
+  page-aligned. This comes from the underlying `arsceneview`/Filament/
+  ARCore native libraries, not from this plugin's own code, and is a
+  known unresolved upstream limitation as of this writing — see
+  `docs/device-testing-log.md` for the investigation. It hasn't caused
+  functional problems in testing so far, but it's worth knowing if you
+  see it and aren't sure where it's coming from.
+
 ## IOS Permissions
 * To prevent your application from crashing when launching augmented reality on iOS, you need to add the following permission to the Info.plist file (located under ios/Runner) :
 
@@ -186,6 +291,24 @@ Therefore, it is necessary to publish your project with github and make the modi
 </td>
 </table>
 
+## Android Setup
+
+The plugin's own `android/src/main/AndroidManifest.xml` already declares the
+camera permission and the ARCore hardware feature requirement, so most apps
+don't need to add anything manually. Two things worth checking in your app:
+
+* **`minSdkVersion`**: set it to at least `28` in your app's
+  `android/app/build.gradle` (or `build.gradle.kts`), matching this plugin's
+  requirement.
+* **Google Play Services for AR**: it's installed automatically from the
+  Play Store on certified devices the first time an ARCore app runs, but if
+  you're testing on a device that never had an AR app installed before, make
+  sure `com.google.ar.core` is present (`adb shell pm list packages | grep
+  ar.core`) or let the OS prompt the user to install/update it.
+
+If you hit a build error mentioning `SurfaceTextureWrapper` or
+`RegisterNatives with FlutterJNI`, check `CHANGELOG.md` — both were fixed
+issues from the original fork with links to the relevant discussions.
 
 ### Example Applications
 
@@ -199,6 +322,16 @@ Therefore, it is necessary to publish your project with github and make the modi
 | Cloud Anchors                | AR Scene in which objects can be placed, uploaded and downloaded, thus creating an interactive AR experience that can be shared between multiple devices. Currently, the example allows to upload the last placed object along with its anchor and download all anchors within a radius of 100m along with all the attached objects (independent of which device originally placed the objects). As sharing the objects is done by using the Google Cloud Anchor Service and Firebase, this requires some additional setup, please read [Getting Started with cloud anchors](cloudAnchorSetup.md)        | [Cloud Anchors Code](https://github.com/hlefe/ar_flutter_plugin_2/blob/main/examples/cloud_anchor.dart)                         |
 | External Object Management   | Similar to the Cloud Anchors example, but contains UI to choose between different models. Rather than being hard-coded, an external database (Firestore) is used to manage the available models. As sharing the objects is done by using the Google Cloud Anchor Service and Firebase, this requires some additional setup, please read [Getting Started with cloud anchors](cloudAnchorSetup.md). Also make sure that in your Firestore database, the collection "models" contains some entries with the fields "name", "image", and "uri", where "uri" points to the raw file of a model in GLB format | [External Model Management Code](https://github.com/hlefe/ar_flutter_plugin_2/blob/main/examples/external_model_management.dart) |
 
+
+## Screenshots and video
+
+_Not yet added._ Once the example app has been validated on a physical
+ARCore/ARKit device (see
+[Running the example app on a physical device](#running-the-example-app-on-a-physical-device)),
+add screenshots or a short screen recording here showing plane detection
+and model placement in action. Save image files under `docs/screenshots/`
+and embed them with `![description](docs/screenshots/filename.png)`; for a
+video, either link to a hosted clip or add a GIF the same way.
 
 ## Plugin Architecture
 
