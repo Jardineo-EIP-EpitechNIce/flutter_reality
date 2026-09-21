@@ -11,6 +11,7 @@ typedef NodePanEndHandler = void Function(String node, Matrix4 transform);
 typedef NodeRotationStartHandler = void Function(String node);
 typedef NodeRotationChangeHandler = void Function(String node);
 typedef NodeRotationEndHandler = void Function(String node, Matrix4 transform);
+typedef NodeErrorHandler = void Function(String error);
 
 /// Manages the all node-related actions of an [ARView]
 class ARObjectManager {
@@ -28,6 +29,9 @@ class ARObjectManager {
   NodeRotationStartHandler? onRotationStart;
   NodeRotationChangeHandler? onRotationChange;
   NodeRotationEndHandler? onRotationEnd;
+
+  /// Callback that is triggered when the native platform reports a node-related error
+  NodeErrorHandler? onError;
   final Map<String, VoidCallback> _transformListeners = {};
 
   ARObjectManager(int id, {this.debug = false}) {
@@ -46,6 +50,7 @@ class ARObjectManager {
       switch (call.method) {
         case 'onError':
           print(call.arguments);
+          onError?.call(call.arguments as String);
           break;
         case 'onNodeTap':
           if (onNodeTap != null) {
@@ -153,7 +158,8 @@ class ARObjectManager {
         }
         return added;
       }
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      print('Error caught: ' + e.toString());
       _removeTransformListener(node);
       return false;
     }

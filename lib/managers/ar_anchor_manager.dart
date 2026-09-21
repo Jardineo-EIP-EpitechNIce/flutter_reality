@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 typedef AnchorUploadedHandler = void Function(ARAnchor arAnchor);
 typedef AnchorDownloadedHandler = ARAnchor Function(
     Map<String, dynamic> serializedAnchor);
+typedef AnchorErrorHandler = void Function(String error);
 
 /// Handles all anchor-related functionality of an [ARView], including configuration and usage of collaborative sessions
 class ARAnchorManager {
@@ -22,6 +23,9 @@ class ARAnchorManager {
 
   /// Callback that is triggered once an anchor has successfully been downloaded from the google cloud anchor API and resolved within the current scene
   AnchorDownloadedHandler? onAnchorDownloaded;
+
+  /// Callback that is triggered when the native platform reports an anchor-related error
+  AnchorErrorHandler? onError;
 
   ARAnchorManager(int id, {this.debug = false}) {
     _channel = MethodChannel('aranchors_$id');
@@ -44,6 +48,7 @@ class ARAnchorManager {
       switch (call.method) {
         case 'onError':
           print(call.arguments);
+          onError?.call(call.arguments as String);
           break;
         case 'onCloudAnchorUploaded':
           final name = call.arguments["name"];
@@ -85,14 +90,15 @@ class ARAnchorManager {
   Future<bool?> addAnchor(ARAnchor anchor) async {
     try {
       return await _channel.invokeMethod<bool>('addAnchor', anchor.toJson());
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      print('Error caught: ' + e.toString());
       return false;
     }
   }
 
   /// Remove given anchor and all its children from the AR Scene
-  removeAnchor(ARAnchor anchor) {
-    _channel.invokeMethod<String>('removeAnchor', {'name': anchor.name});
+  Future<void> removeAnchor(ARAnchor anchor) {
+    return _channel.invokeMethod<String>('removeAnchor', {'name': anchor.name});
   }
 
   /// Upload given anchor from the underlying AR scene to the Google Cloud Anchor API
@@ -102,7 +108,8 @@ class ARAnchorManager {
           await _channel.invokeMethod<bool>('uploadAnchor', anchor.toJson());
       pendingAnchors.add(anchor);
       return response;
-    } on PlatformException {
+    } on PlatformException catch (e) {
+      print('Error caught: ' + e.toString());
       return false;
     }
   }

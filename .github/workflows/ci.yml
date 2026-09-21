@@ -29,10 +29,13 @@ jobs:
       - name: Check formatting
         run: >-
           dart format --output=none --set-exit-if-changed
+          lib/managers/ar_anchor_manager.dart
+          lib/managers/ar_location_manager.dart
           lib/managers/ar_object_manager.dart
           lib/managers/ar_session_manager.dart
           lib/widgets/ar_view.dart
           test/ar_flutter_plugin_test.dart
+          test/managers_test.dart
           example/lib/main.dart
           example/lib/hit_test_selection.dart
           example/test/widget_test.dart

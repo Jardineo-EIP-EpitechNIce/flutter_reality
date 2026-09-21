@@ -29,10 +29,10 @@ class ARSessionManager {
   final PlaneDetectionConfig planeDetectionConfig;
 
   /// Receives hit results from user taps with tracked planes or feature points
-  late ARHitResultHandler onPlaneOrPointTap;
+  ARHitResultHandler? onPlaneOrPointTap;
 
   /// Receives total number of Planes when a plane is detected and added to the view
-  late ARPlaneResultHandler onPlaneDetected;
+  ARPlaneResultHandler? onPlaneDetected;
 
   /// Callback that is triggered once error is triggered
   ErrorHandler? onError;
@@ -112,18 +112,18 @@ class ARSessionManager {
   }
 
   //Disable Camera
-  void disableCamera() {
-    _channel.invokeMethod<void>('disableCamera');
+  Future<void> disableCamera() {
+    return _channel.invokeMethod<void>('disableCamera');
   }
 
   //Enable Camera
-  void enableCamera() {
-    _channel.invokeMethod<void>('enableCamera');
+  Future<void> enableCamera() {
+    return _channel.invokeMethod<void>('enableCamera');
   }
 
   //Show or hide planes
-  void showPlanes(bool showPlanes) {
-    _channel.invokeMethod<void>('showPlanes', {
+  Future<void> showPlanes(bool showPlanes) {
+    return _channel.invokeMethod<void>('showPlanes', {
       "showPlanes": showPlanes,
     });
   }
@@ -155,11 +155,11 @@ class ARSessionManager {
           final hitTestResults = serializedHitTestResults
               .map((e) => ARHitTestResult.fromJson(e))
               .toList();
-          onPlaneOrPointTap(hitTestResults);
+          onPlaneOrPointTap?.call(hitTestResults);
           break;
         case 'onPlaneDetected':
           final planeCountResult = call.arguments as int;
-          onPlaneDetected(planeCountResult);
+          onPlaneDetected?.call(planeCountResult);
           break;
         case 'dispose':
           _channel.invokeMethod<void>("dispose");
