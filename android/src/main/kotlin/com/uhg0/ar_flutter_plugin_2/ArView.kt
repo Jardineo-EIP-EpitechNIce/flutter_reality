@@ -177,9 +177,18 @@ class ArView(
                     focusMode = Config.FocusMode.AUTO
                     planeFindingMode = Config.PlaneFindingMode.DISABLED
                 }
-            }
+            },
+            onSessionFailed = { exception ->
+                // The lifecycle-driven session resume (e.g. after the app returns
+                // from background) can fail natively without ever reaching Dart.
+                // Surface it explicitly instead of leaving the AR view silently black.
+                sessionChannel.invokeMethod(
+                    "onError",
+                    listOf("AR session failed: ${exception.message}"),
+                )
+            },
         )
-        
+
         rootLayout.addView(sceneView)
 
         sessionChannel.setMethodCallHandler(onSessionMethodCall)

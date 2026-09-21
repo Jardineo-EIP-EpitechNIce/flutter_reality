@@ -81,6 +81,84 @@ ships without exported symbols in this build, so only the offset is
 available; deeper diagnosis needs a locally-built `arsceneview`/Filament
 with symbols, or reproducing against a newer library version.
 
+### Root cause found: prebuilt native libraries are not 16 KB page aligned
+
+Android surfaced its own "App compatibility" warning on launch (debug
+builds only) naming several native libraries as incompatible with 16 KB
+memory pages — mandatory on newer devices/kernels including this Pixel
+9a: `libarcore_sdk_jni.so`, `libfilament-jni.so`, `libfilament-utils-jni.so`,
+`libgltfio-jni.so`, `libarcore_sdk_c.so`, `libVkLayer_khronos_validation.so`,
+and even `libflutter.so`.
+
+Verified independently with `readelf -lW` on the merged
+`libfilament-jni.so` (arm64-v8a, from `arsceneview:2.2.1`): its `LOAD`
+segments declare `p_align = 0x4000` (16 KB) but their file offsets are not
+actually multiples of that (e.g. `0x220520`, which is not divisible by
+`0x4000`) — the library's segments are genuinely misaligned, not just
+under a stale OS warning.
+
+This is consistent with, and a very plausible root cause of, both bug #1
+and bug #2: on a 16 KB-page device, the dynamic linker has to fall back to
+compatibility handling for these libraries, which is exactly the kind of
+condition that produces the garbage-looking fault address seen in the
+SIGSEGV tombstone (`0x0000043800000780`).
+
+**Tried:** bumping `io.github.sceneview:arsceneview` from `2.2.1` to the
+latest available release, `2.3.0` (also required raising `compileSdk` from
+34 to 35, since `2.3.0` transitively depends on `androidx.core:core-ktx:1.16.0`).
+Build succeeded and ran on-device, but the black-screen-after-resume bug
+reproduced identically — `2.3.0` still bundles a Filament build with the
+same non-16-KB-aligned native libraries. **Reverted** both changes
+(`android/build.gradle`) since the bump added risk (a `compileSdk` change,
+a newer transitive dependency graph) without fixing anything.
+
+**Why not fixed here:** the misaligned `.so` files are prebuilt and shipped
+inside the `arsceneview`/ARCore/Filament AARs; this plugin has no control
+over how they were linked. A real fix needs one of:
+- an upstream `arsceneview`/Filament/ARCore release built with
+  16 KB-aligned native libraries (worth checking again periodically —
+  this was an active, industry-wide migration at the time of testing), or
+- re-linking the bundled `.so` files with `-Wl,-z,max-page-size=16384`
+  during the plugin's own build (nontrivial: these are prebuilt binaries,
+  not compiled from source in this repo), or
+- moving off `arsceneview` for the rendering backend, which is a much
+  larger change than "stabilize the lifecycle" and out of scope for now.
+
+### Second root cause found: the platform view itself is recreated on resume, not just paused
+
+Wired `ARSceneView.onSessionFailed` (previously unused; exposed by the
+library but never connected) through to Dart's `onError`, so a native
+session failure is no longer silent
+(`android/src/main/kotlin/com/uhg0/ar_flutter_plugin_2/ArView.kt`). Re-ran
+the exact background/foreground repro to check it: no crash, but also no
+`onError` fired — and the status text reset to the very first message
+("AR session ready. Move the device to scan surfaces.", 0 planes), even
+though the app process kept the same pid throughout.
+
+That reset only happens from `example/lib/main.dart`'s `_onARViewCreated`,
+which the plugin only calls once per platform view instance. Seeing it
+fire again on resume, in the same process, means Flutter recreated the
+`ArView` platform view itself when the app came back to the foreground —
+this is a difference in kind from a simple ARCore session pause/resume
+bug: the GL surface is black because it belongs to a brand new,
+not-yet-composited platform view, not because an existing session failed
+to resume. This is a known category of issue with Flutter's Android
+hybrid composition (`PlatformViewsController` logged
+`"Hosting view in a virtual display for platform view: 0"` /
+`"PlatformView is using SurfaceProducer backend"` on the very first
+launch), not something specific to ARCore/Filament — the 16 KB-alignment
+issue above may still contribute to the SIGSEGV crash variant, but does
+not fully explain this view-recreation behavior on its own.
+
+The `onSessionFailed` wiring is kept regardless: it's a real gap (a
+native session that fails to resume was silently swallowed before), and
+it stays useful for whatever fraction of failures happen inside an
+existing view. But it does not fix bug #1 by itself, and diagnosing the
+platform-view recreation needs Android platform-view lifecycle
+instrumentation (e.g. logging `ArViewFactory.create`/`ArView.dispose`
+calls) that wasn't added yet, to avoid growing this session into an
+open-ended investigation.
+
 ## Not yet tested
 
 - iOS / ARKit (no iPhone available in this session).
@@ -91,12 +169,21 @@ with symbols, or reproducing against a newer library version.
 
 ## Next steps (step 3 of the roadmap)
 
-- Reproduce bug #1 with `arsceneview` bumped to its latest 2.x release and
-  see if the resume path is fixed upstream before patching around it here.
-- Wire the plugin's `onError` callback (or a new lifecycle-specific
-  callback) to report when the native session fails to resume, instead of
-  failing silently — required before this can be called "handled" per the
-  project's error-handling constraints.
-- Once a fix is in place, re-run this exact repro (background → foreground,
-  with and without placed models) to confirm both the black-screen case
-  and the crash are resolved.
+- Done this session: wired `ARSceneView.onSessionFailed` to Dart's
+  `onError` so a native session that fails to resume is no longer silent
+  (see above). Confirmed it doesn't fire for bug #1's repro, because that
+  bug is a platform-view recreation, not a session failure inside an
+  existing view.
+- Instrument `ArViewFactory.create` / `ArView.dispose` (and the
+  Activity/Fragment lifecycle callbacks Flutter drives them from) with
+  logging to confirm definitively whether the platform view is destroyed
+  and recreated on resume, and why — this is the next concrete step
+  before attempting a fix, since patching without confirming the exact
+  trigger risks masking the symptom instead of the cause.
+- Watch for an `arsceneview`/Filament release with 16 KB-page-aligned
+  native libraries and re-test the crash-under-load repro (bug #2)
+  against it (checked `2.3.0` already — see above, no fix yet). This is
+  a separate axis from the platform-view recreation issue.
+- Once a fix is in place for either, re-run this exact repro (background
+  → foreground, with and without placed models) to confirm both the
+  black-screen case and the crash are resolved.
