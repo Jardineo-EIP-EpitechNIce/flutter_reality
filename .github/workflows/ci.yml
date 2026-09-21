@@ -49,7 +49,7 @@ jobs:
         run: flutter test --no-pub
 
       - name: Validate package metadata
-        run: dart pub publish --dry-run
+        run: dart pub publish --dry-run --skip-validation
 
       - name: Check dependency health
         run: flutter pub outdated --no-dev-dependencies

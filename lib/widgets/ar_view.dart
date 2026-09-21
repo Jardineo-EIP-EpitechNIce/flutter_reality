@@ -155,11 +155,10 @@ class ARView extends StatefulWidget {
       : super(key: key);
   @override
   _ARViewState createState() => _ARViewState(
-      showPlatformType: this.showPlatformType,
-      permissionPromptDescription: this.permissionPromptDescription,
-      permissionPromptButtonText: this.permissionPromptButtonText,
-      permissionPromptParentalRestriction:
-          this.permissionPromptParentalRestriction);
+      showPlatformType: showPlatformType,
+      permissionPromptDescription: permissionPromptDescription,
+      permissionPromptButtonText: permissionPromptButtonText,
+      permissionPromptParentalRestriction: permissionPromptParentalRestriction);
 }
 
 class _ARViewState extends State<ARView> {
@@ -250,7 +249,7 @@ class _ARViewState extends State<ARView> {
           return Center(child: Text(permissionPromptParentalRestriction));
         }
       default:
-        return Text('something went wrong');
+        return const Text('something went wrong');
     }
   }
 }
