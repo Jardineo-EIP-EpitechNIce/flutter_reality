@@ -1,6 +1,14 @@
 # Changelog
-## Unreleased
-* BREAKING: renamed the package from `ar_flutter_plugin_2` to `flutter_reality` (pubspec name, Dart imports, Android namespace `com.uhg0.ar_flutter_plugin_2` → `com.flutterreality.flutter_reality`, iOS pod `ar_flutter_plugin_2` → `flutter_reality`, and the internal platform-view/method-channel identifier). Consumers need to update their `pubspec.yaml` dependency name and `import 'package:flutter_reality/...'` statements. The version number is left as-is here; it will be bumped when this is published (see the project roadmap's publication step).
+## 0.1.0
+* BREAKING: renamed the package from `ar_flutter_plugin_2` to `flutter_reality` (pubspec name, Dart imports, Android namespace `com.uhg0.ar_flutter_plugin_2` → `com.flutterreality.flutter_reality`, iOS pod `ar_flutter_plugin_2` → `flutter_reality`, and the internal platform-view/method-channel identifier). Consumers need to update their `pubspec.yaml` dependency name and `import 'package:flutter_reality/...'` statements.
+* Added a real 3D model placement scenario to the example app: tapping a detected plane places a local `.glb` model, with model removal and a testable hit-test selection helper (`selectPlacementHit`).
+* Fixed the AR camera feed staying black after the app returns from background on Android: `ARView` now requests true Hybrid Composition instead of Flutter's default platform-view mode, which doesn't reliably keep an embedded `SurfaceView` (what `ARSceneView` is) attached and rendering.
+* Fixed the two-finger rotation gesture doing nothing visually on Android (`isEditable` was never set on the model node, so the underlying library's `isRotationEditable` check always failed) without regressing drag/pan, which relies on a different, anchor-based mechanism.
+* Fixed a missing `"init"` handler on Android's object method channel that made `ARObjectManager.onInitialize()` always throw `MissingPluginException`.
+* Surfaced several previously-silent native/platform errors to Dart instead of swallowing them: `ARSceneView.onSessionFailed` now reaches `ARSessionManager.onError`; `ARAnchorManager` and `ARObjectManager` gained their own `onError` callbacks; caught `PlatformException`s are now logged instead of discarded.
+* `ARSessionManager.onPlaneOrPointTap`/`onPlaneDetected` are now nullable instead of `late`, so a native event arriving before the app sets them no longer throws `LateInitializationError`. `ARLocationManager.stopLocationUpdates()` is now a safe no-op if location updates were never started (same underlying `late`-field issue).
+* Several previously `void`/untyped fire-and-forget methods now consistently return `Future<void>` so callers can await and see failures: `ARSessionManager.disableCamera/enableCamera/showPlanes`, `ARAnchorManager.removeAnchor`, `ARLocationManager.openAppPermissionSettings/openLocationServicesSettings`.
+* Documented Android setup, device/OS requirements, a full guide for running the example app on a physical device, and a troubleshooting section in the README, based on real testing on a Pixel 9a (see `docs/device-testing-log.md` for the full session).
 
 ## 0.0.3
 * Solved the issue "Failed to RegisterNatives with FlutterJNI" mentioned here : https://github.com/hlefe/ar_flutter_plugin_2/issues/1#issuecomment-2676352087

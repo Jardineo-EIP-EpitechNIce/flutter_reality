@@ -9,6 +9,32 @@ This fork was created because the original plugin had not been updated since 202
 ➡ Changes include an update to the AR Core endpoint, a gradle upgrade, and compatibility with FlutterFlow.<br>
 ➡ Migration has been done from sceneform to sceneview_android; any contribution is welcome.
 
+### Differences from `ar_flutter_plugin_2`
+
+This package (`flutter_reality`) is itself a fork of `ar_flutter_plugin_2`
+(the plugin described above), published under a new name and package
+identity so it can ship independently on pub.dev. On top of the rename
+(Dart package, Android namespace, iOS pod — see `CHANGELOG.md` 0.1.0), it
+adds real-device-verified fixes that `ar_flutter_plugin_2` doesn't have as
+of this writing:
+
+* the AR camera view no longer stays black after the app returns from
+  background on Android (a `SurfaceView`/platform-view composition issue);
+* the two-finger rotation gesture on placed models actually rotates them
+  visually on Android (it silently did nothing before);
+* `ARObjectManager.onInitialize()` no longer always throws
+  `MissingPluginException` on Android;
+* several native/platform errors that were previously silent now reach
+  Dart through `onError` callbacks or are at least logged instead of
+  discarded, and a handful of `late`/`void` API rough edges (see
+  `CHANGELOG.md`) that could throw or hide errors have been tightened to
+  nullable types and `Future<void>` returns.
+
+See `docs/device-testing-log.md` for the full investigation behind each of
+these, including two fixes that regressed and had to be corrected — kept
+in the log rather than edited out, since it's a more honest record of what
+was actually verified on hardware.
+
 ## Scope and optimization
 
 This plugin provides a unified Flutter API over native ARCore and ARKit capabilities. It
