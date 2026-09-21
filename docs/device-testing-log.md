@@ -32,7 +32,7 @@ still outstanding (no iPhone available in this session).
 
 ## Bugs found
 
-### 1. Black camera feed after returning from background (reproducible)
+### 1. Black camera feed after returning from background — FIXED (see below)
 
 **Steps to reproduce:**
 1. Launch the example app, grant camera permission, let it detect at
@@ -55,7 +55,7 @@ this device; the resume path does not appear to successfully recreate the
 rendering surface. Needs reproduction against a newer `arsceneview`
 release before attempting a fix here.
 
-### 2. Intermittent native crash (SIGSEGV) on resume, under load
+### 2. Intermittent native crash (SIGSEGV) on resume, under load — no longer reproduced after the fix below
 
 **Steps to reproduce:** Same as above, but observed once after 9 models
 were placed in the scene before backgrounding. Not reproduced on a
@@ -153,11 +153,49 @@ not fully explain this view-recreation behavior on its own.
 The `onSessionFailed` wiring is kept regardless: it's a real gap (a
 native session that fails to resume was silently swallowed before), and
 it stays useful for whatever fraction of failures happen inside an
-existing view. But it does not fix bug #1 by itself, and diagnosing the
-platform-view recreation needs Android platform-view lifecycle
-instrumentation (e.g. logging `ArViewFactory.create`/`ArView.dispose`
-calls) that wasn't added yet, to avoid growing this session into an
-open-ended investigation.
+existing view.
+
+### Correction: the view-recreation theory was a red herring; bug #1 is fixed
+
+Added logging to `ArViewFactory.create`, `ArView`'s init block, and
+`ArFlutterPlugin`'s activity-lifecycle callbacks
+(`android/src/main/kotlin/com/uhg0/ar_flutter_plugin_2/ArViewFactory.kt`,
+`ArView.kt`, `ArFlutterPlugin.kt`) to check the view-recreation theory
+above directly instead of inferring it from Dart-side state. Re-running
+the repro with a *fast* background → foreground cycle (a couple of
+seconds, avoiding the OS killing the backgrounded process — which is what
+had actually happened in the earlier trial and explains the Dart state
+reset) showed: same process pid throughout, **no** `dispose`/`create`
+log lines at all, so the platform view is never destroyed or recreated —
+yet the camera feed was still black. So the "platform view recreated"
+theory was wrong; bug #1 is a single-view rendering problem after resume,
+which matches the original, simpler hypothesis.
+
+The actual cause: `ARSceneView` (from `arsceneview`) extends
+`android.view.SurfaceView`. `lib/widgets/ar_view.dart`'s `AndroidARView`
+carried a doc comment claiming it "Uses Hybrid Composition" but its
+`build()` actually called the plain `AndroidView(...)` constructor, which
+does not request Hybrid Composition — it uses Flutter's default
+composition mode for platform views (Virtual Display or Texture Layer
+Hybrid Composition depending on Flutter version; logs showed
+`"PlatformView is using SurfaceProducer backend"`, i.e. TLHC). Flutter's
+own platform-views documentation states that embedded `SurfaceView`s need
+true Hybrid Composition to render reliably; TLHC/Virtual Display are
+known to not always keep a `SurfaceView`'s content attached and
+repainting after the app returns from background.
+
+**Fix:** `lib/widgets/ar_view.dart`'s `AndroidARView.build()` now
+requests Hybrid Composition explicitly via `PlatformViewLink` +
+`PlatformViewsService.initSurfaceAndroidView`, matching Flutter's
+documented pattern for `SurfaceView`-based platform views.
+
+**Verified fixed** on the Pixel 9a: ran the background → foreground repro
+three times after the fix — twice with an empty scene, once with 6
+models placed (the load condition that previously triggered the SIGSEGV
+crash) — camera feed rendered correctly and no crash occurred in all
+three runs (confirmed visually; visual re-verification was needed for
+this session because it exceeded its own screenshot budget partway
+through this investigation).
 
 ## Not yet tested
 
@@ -169,21 +207,29 @@ open-ended investigation.
 
 ## Next steps (step 3 of the roadmap)
 
-- Done this session: wired `ARSceneView.onSessionFailed` to Dart's
-  `onError` so a native session that fails to resume is no longer silent
-  (see above). Confirmed it doesn't fire for bug #1's repro, because that
-  bug is a platform-view recreation, not a session failure inside an
-  existing view.
-- Instrument `ArViewFactory.create` / `ArView.dispose` (and the
-  Activity/Fragment lifecycle callbacks Flutter drives them from) with
-  logging to confirm definitively whether the platform view is destroyed
-  and recreated on resume, and why — this is the next concrete step
-  before attempting a fix, since patching without confirming the exact
-  trigger risks masking the symptom instead of the cause.
-- Watch for an `arsceneview`/Filament release with 16 KB-page-aligned
-  native libraries and re-test the crash-under-load repro (bug #2)
-  against it (checked `2.3.0` already — see above, no fix yet). This is
-  a separate axis from the platform-view recreation issue.
-- Once a fix is in place for either, re-run this exact repro (background
-  → foreground, with and without placed models) to confirm both the
-  black-screen case and the crash are resolved.
+Done this session:
+- Wired `ARSceneView.onSessionFailed` to Dart's `onError` so a native
+  session that fails to resume is no longer silent.
+- Root-caused and fixed bug #1 (black camera feed on resume): switched
+  `AndroidARView` to true Hybrid Composition (`lib/widgets/ar_view.dart`),
+  since `ARSceneView` is `SurfaceView`-based and Flutter's default
+  platform-view composition mode doesn't reliably keep such views
+  attached and rendering after the app returns from background. Verified
+  fixed with 3 repro runs (2 empty scene, 1 with 6 models placed).
+- Bug #2 (the SIGSEGV crash) did not reproduce in the loaded-scene repro
+  run after the fix — plausible, since Filament touching a torn-down/
+  invalid `Surface` on resume is consistent with both bugs sharing the
+  same underlying trigger. Not yet confirmed over enough runs to call it
+  fixed outright; keep an eye out for it in future testing.
+
+Still open:
+- Run more background/foreground cycles over a longer testing session
+  (this session's repro runs were short, deliberate cycles) to build
+  confidence bug #2 is actually resolved and not just less frequent.
+- The 16 KB native-library page-misalignment issue (see above) is still
+  present regardless of this fix — it didn't turn out to be bug #1's
+  cause, but it's a real latent risk on 16 KB-page devices. Keep watching
+  for an `arsceneview`/Filament release that ships aligned libraries.
+- iOS/ARKit has its own lifecycle to verify (`IosARView.swift`) — nothing
+  in this session touched or tested it; still fully open per "Not yet
+  tested" below.

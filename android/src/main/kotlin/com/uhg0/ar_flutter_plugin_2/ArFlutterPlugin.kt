@@ -1,6 +1,7 @@
 package com.uhg0.ar_flutter_plugin_2
 
 import android.app.Activity
+import android.util.Log
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import io.flutter.embedding.engine.plugins.FlutterPlugin
@@ -11,16 +12,20 @@ class ArFlutterPlugin: FlutterPlugin, ActivityAware {
     private var activity: Activity? = null
     private var lifecycle: Lifecycle? = null
     private var flutterPluginBinding: FlutterPlugin.FlutterPluginBinding? = null
+    private val TAG = "ArFlutterPlugin"
 
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        Log.i(TAG, "onAttachedToEngine")
         flutterPluginBinding = binding
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
+        Log.i(TAG, "onDetachedFromEngine")
         flutterPluginBinding = null
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        Log.i(TAG, "onAttachedToActivity: activity=${binding.activity}")
         activity = binding.activity
         lifecycle = (activity as LifecycleOwner).lifecycle
         
@@ -38,11 +43,13 @@ class ArFlutterPlugin: FlutterPlugin, ActivityAware {
     }
 
     override fun onDetachedFromActivityForConfigChanges() {
+        Log.i(TAG, "onDetachedFromActivityForConfigChanges")
         activity = null
         lifecycle = null
     }
 
     override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        Log.i(TAG, "onReattachedToActivityForConfigChanges: activity=${binding.activity}")
         activity = binding.activity
         lifecycle = (activity as LifecycleOwner).lifecycle
         
@@ -60,6 +67,7 @@ class ArFlutterPlugin: FlutterPlugin, ActivityAware {
     }
 
     override fun onDetachedFromActivity() {
+        Log.i(TAG, "onDetachedFromActivity")
         activity = null
         lifecycle = null
     }

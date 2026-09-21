@@ -66,6 +66,7 @@ class ArView(
     id: Int,
 ) : PlatformView {
     private val TAG: String = ArView::class.java.name
+    private val viewId: Int = id
     private val viewContext: Context = context
     private var sceneView: ARSceneView
     private val mainScope = CoroutineScope(Dispatchers.Main)
@@ -166,6 +167,7 @@ class ArView(
         }
 
     init {
+        Log.i(TAG, "init: viewId=$viewId lifecycleState=${lifecycle.currentState}")
         sceneView = ARSceneView(
             context = viewContext,
             sharedLifecycle = lifecycle,
@@ -1149,7 +1151,7 @@ class ArView(
     override fun getView(): View = rootLayout
 
     override fun dispose() {
-        Log.i(TAG, "dispose")
+        Log.i(TAG, "dispose: viewId=$viewId lifecycleState=${lifecycle.currentState}")
         sessionChannel.setMethodCallHandler(null)
         objectChannel.setMethodCallHandler(null)
         anchorChannel.setMethodCallHandler(null)
