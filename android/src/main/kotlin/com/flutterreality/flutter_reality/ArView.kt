@@ -103,7 +103,10 @@ class ArView(
             when (call.method) {
                 "init" -> handleInit(call, result)
                 "showPlanes" -> handleShowPlanes(call, result)
-                "dispose" -> dispose()
+                "dispose" -> {
+                    dispose()
+                    result.success(null)
+                }
                 "getAnchorPose" -> handleGetAnchorPose(call, result)
                 "getCameraPose" -> handleGetCameraPose(result)
                 "snapshot" -> handleSnapshot(result)
@@ -133,6 +136,7 @@ class ArView(
     private val onObjectMethodCall =
         MethodChannel.MethodCallHandler { call, result ->
             when (call.method) {
+                "init" -> result.success(null)
                 "addNode" -> {
                     val nodeData = call.arguments as? Map<String, Any>
                     nodeData?.let {

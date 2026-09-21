@@ -139,7 +139,6 @@ class IosARView: NSObject, FlutterPlatformView, ARSCNViewDelegate, UIGestureReco
           
         switch call.method {
             case "init":
-                DispatchQueue.main.async {self.objectManagerChannel.invokeMethod("onError", arguments: ["ObjectTEST from iOS"])}
                 result(nil)
                 break
             case "addNode":
@@ -176,7 +175,6 @@ class IosARView: NSObject, FlutterPlatformView, ARSCNViewDelegate, UIGestureReco
           
         switch call.method {
             case "init":
-                DispatchQueue.main.async {self.objectManagerChannel.invokeMethod("onError", arguments: ["ObjectTEST from iOS"])}
                 result(nil)
                 break
             case "addAnchor":

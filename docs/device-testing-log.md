@@ -234,25 +234,53 @@ Still open:
   in this session touched or tested it; still fully open per "Not yet
   tested" below.
 
-### New minor finding: `MissingPluginException` on the very first `arobjects_$id` call
+### `MissingPluginException` on `arobjects_$id`'s `init` call — FIXED, and the "startup race" theory below was wrong
 
 Package/namespace rename (`ar_flutter_plugin_2` → `flutter_reality`,
 `com.uhg0.ar_flutter_plugin_2` → `com.flutterreality.flutter_reality`)
-required a full clean reinstall to validate — this surfaced a startup
-race independent of the rename (the `arobjects_$id`/`arsession_$id`/
-`aranchors_$id` channel names are unchanged): on a fresh platform-view
-creation, `ARObjectManager.onInitialize()`'s `init` call sometimes reaches
-the native side (`ArView.kt`) before `objectChannel.setMethodCallHandler`
-has taken effect, throwing an uncaught `MissingPluginException` visible in
-the debug console. Reproduced 3/3 times after the Hybrid Composition
-switch (not confirmed whether it also happened before that change).
+required a full clean reinstall to validate, which surfaced a
+`MissingPluginException` on `ARObjectManager.onInitialize()`'s `init`
+call. First hypothesis was a startup race (native channel handler not
+yet registered when the first message arrives) — reproduced 3/3 times, so
+a bounded exponential-backoff retry (`lib/utils/channel_retry.dart`) was
+written and wired into `onInitialize()`/`dispose()` in both
+`ARObjectManager` and `ARSessionManager`.
 
-**Not functionally blocking**: subsequent calls on the same channel (e.g.
-`addNode` from tapping to place a model) worked correctly moments later
-in every run — plane detection, tap-to-place, remove-last-model, and the
-background/foreground fix all still worked end-to-end after this
-exception. Left unfixed this session (out of scope for a rename task),
-but worth a real fix later: either have Dart await platform-view-created
-confirmation before calling `onInitialize()`, or make the native `init`
-handler tolerant of being invoked implicitly once registered (it isn't
-dropping state today, since addNode works right after).
+**That diagnosis was wrong.** With retries in place, the exception still
+occurred after exhausting ~1.5s of backoff — a race would have resolved
+in milliseconds, not persisted past 1.5 real seconds. Checking the native
+handler directly (`onObjectMethodCall` in `ArView.kt`) showed the real
+cause: **there was no `"init"` case at all** — every call fell through to
+`else -> result.notImplemented()`, which Flutter surfaces to Dart as
+`MissingPluginException` regardless of timing. This was a pre-existing
+gap (unrelated to the rename or the earlier Hybrid Composition change),
+just never noticed because the call is fire-and-forget in the example app
+and nothing else depends on it succeeding — `addNode` and other object
+methods are implemented and always worked.
+
+**Fix:** added `"init" -> result.success(null)` to `onObjectMethodCall`
+(`ArView.kt`), matching what iOS already does for the same channel/method
+(`IosARView.swift`'s `onObjectMethodCalled`). While in that file, also
+fixed two more misses caught during the correction:
+- Android's `onSessionMethodCall`'s `"dispose"` case called `dispose()`
+  but never called `result.success(...)`, so `ARSessionManager.dispose()`
+  would hang forever if awaited (nothing awaits it today, so this was
+  silent — now fixed regardless).
+- iOS's `onObjectMethodCalled` and `onAnchorMethodCalled` `"init"` cases
+  had leftover debug code firing a fake `onError("ObjectTEST from iOS")`
+  on every init (the anchor one even sent it on the *wrong* channel,
+  `objectManagerChannel` instead of `anchorManagerChannel` — a copy-paste
+  artifact). Removed; not verified on a real device since no iPhone was
+  available this session, but the change is a pure deletion.
+
+Reverted the retry/backoff mechanism and its tests
+(`lib/utils/channel_retry.dart`) once the real cause was fixed — it was
+solving a problem that didn't exist, and keeping speculative defensive
+code around after the actual bug is understood and fixed would just be
+unjustified complexity.
+
+**Verified on the Pixel 9a**: full clean reinstall, zero
+`MissingPluginException` anywhere in the log, tap-to-place and
+remove-last-model work immediately (not just "moments later"), and a
+background/foreground cycle afterward still renders the camera correctly
+with the same process pid throughout.

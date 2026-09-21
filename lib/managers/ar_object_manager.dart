@@ -115,8 +115,8 @@ class ARObjectManager {
   }
 
   /// Sets up the AR Object Manager
-  onInitialize() {
-    _channel.invokeMethod<void>('init', {});
+  Future<void> onInitialize() {
+    return _channel.invokeMethod<void>('init', {});
   }
 
   /// Add given node to the given anchor of the underlying AR scene (or to its top-level if no anchor is given) and listen to any changes made to its transformation
