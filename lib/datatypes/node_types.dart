@@ -1,7 +1,14 @@
 /// Determines which types of nodes the plugin supports
 enum NodeType {
-  localGLTF2, // Node with renderable with fileending .gltf in the Flutter asset folder
-  webGLB, // Node with renderable with fileending .glb loaded from the internet during runtime
-  fileSystemAppFolderGLB, // Node with renderable with fileending .glb in the documents folder of the current app
-  fileSystemAppFolderGLTF2, // Node with renderable with fileending .gltf in the documents folder of the current app
+  /// Node with a renderable with file ending `.gltf` in the Flutter asset folder
+  localGLTF2,
+
+  /// Node with a renderable with file ending `.glb` loaded from the internet during runtime
+  webGLB,
+
+  /// Node with a renderable with file ending `.glb` in the documents folder of the current app
+  fileSystemAppFolderGLB,
+
+  /// Node with a renderable with file ending `.gltf` in the documents folder of the current app
+  fileSystemAppFolderGLTF2,
 }

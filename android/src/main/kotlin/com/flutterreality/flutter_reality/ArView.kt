@@ -330,7 +330,18 @@ class ArView(
                 onFrame = { frameTime ->
                     try {
                         if (!isSessionPaused) {
-                            session?.update()?.let { frame ->
+                            // ARSceneView's own per-frame callback (the protected onFrame(Long)
+                            // that invokes this lambda) already calls session.updateOrNull() once
+                            // before we ever get here, and stashes the result in its `frame`
+                            // property (confirmed by decompiling arsceneview 2.3.0:
+                            // ARSceneView.onFrame() updates ARCore, feeds the camera
+                            // stream/camera node/light estimator/plane renderer from that result,
+                            // then exposes it via the public `frame` getter). Calling
+                            // session.update() again here was a second full ARCore update - image
+                            // acquisition plus plane/point-cloud/anchor tracking - every single
+                            // rendered frame, for the entire time the AR view was active. Reusing
+                            // the already-updated frame avoids that duplicate per-frame cost.
+                            frame?.let { frame ->
                                 if (showAnimatedGuide) {
                                     frame.getUpdatedTrackables(Plane::class.java).forEach { plane ->
                                         if (plane.trackingState == TrackingState.TRACKING) {
@@ -627,9 +638,22 @@ class ArView(
                     val listener =
                         PixelCopy.OnPixelCopyFinishedListener { copyResult ->
                             if (copyResult == PixelCopy.SUCCESS) {
-                                val byteStream = java.io.ByteArrayOutputStream()
-                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
-                                continuation.resume(byteStream.toByteArray())
+                                // PixelCopy's callback runs on the Handler we pass it below -
+                                // the main looper, since PixelCopy requires either the main
+                                // looper or a HandlerThread with an attached Surface, and we
+                                // don't have the latter here. Synchronously PNG-encoding a
+                                // full-resolution ARGB_8888 bitmap (commonly 10-20+ MB
+                                // uncompressed on modern phone resolutions) directly in that
+                                // callback used to block the main/UI thread for the entire
+                                // encode, which can take hundreds of milliseconds and stalls
+                                // rendering/input right when a snapshot is taken. Moving the
+                                // compress() call to Dispatchers.Default keeps the main thread
+                                // free while the encode runs.
+                                mainScope.launch(Dispatchers.Default) {
+                                    val byteStream = java.io.ByteArrayOutputStream()
+                                    bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
+                                    continuation.resume(byteStream.toByteArray())
+                                }
                             } else {
                                 continuation.resumeWithException(
                                     FlutterError("SNAPSHOT_ERROR", "Failed to capture snapshot", null),
@@ -806,7 +830,14 @@ class ArView(
         teardown()
     }
 
+    // Guards teardown() against running twice: Dart calling ARSessionManager.dispose()
+    // and the Flutter framework calling PlatformView.dispose() when the view is removed
+    // both route here, and the documented usage is to call both in that order.
+    private var isTornDown = false
+
     private fun teardown() {
+        if (isTornDown) return
+        isTornDown = true
         Log.i(TAG, "dispose: viewId=$viewId lifecycleState=${lifecycle.currentState}")
         ARSessionHostApi.setUp(messenger, null, channelSuffix)
         ARObjectHostApi.setUp(messenger, null, channelSuffix)
@@ -871,7 +902,27 @@ class ArView(
     private fun removePointCloudNode(pointCloudNode: PointCloudNode) {
         pointCloudNodes -= pointCloudNode
         sceneView.removeChildNode(pointCloudNode)
-        pointCloudNode.destroy()
+        // Deliberately NOT calling pointCloudNode.destroy() here: Node.destroy() (via
+        // ModelNode) destroys the FilamentInstance's own root entity
+        // (ModelLoader.createInstancedModel constructs each ModelNode with
+        // entity = modelInstance.root), permanently invalidating that pooled instance.
+        // Since every <10fps point-cloud refresh removes and re-adds up to 1000 nodes,
+        // destroying the entity here meant pointCloudModelInstances was drained (never
+        // refilled) within the first refresh or two, after which every subsequent
+        // refresh's getPointCloudModelInstance() call hit the
+        // pointCloudModelInstances.isEmpty() branch and called createInstancedModel()
+        // again - allocating a brand-new FilamentAsset (with its own point_cloud.glb
+        // vertex/texture buffers, confirmed via decompiling ModelLoader.createInstancedModel:
+        // it appends the new asset to ModelLoader's internal `models` list and never
+        // reuses or destroys the previous one) roughly once per pool depletion, for as
+        // long as showFeaturePoints stayed enabled. Those orphaned assets are only ever
+        // cleaned up when the whole ArSceneView/ModelLoader is torn down
+        // (ModelLoader.destroy() -> clear() -> destroyModel() for every tracked asset),
+        // so this was an unbounded native/GPU memory leak for the lifetime of the AR
+        // session. Returning the still-alive instance to the pool instead lets it be
+        // reused on the next refresh, keeping the pool's total instance count bounded at
+        // the original 1000 and eliminating the repeated asset allocation entirely.
+        pointCloudModelInstances.add(pointCloudNode.modelInstance)
     }
 
     private fun makeWorldOriginNode(context: Context): Node {

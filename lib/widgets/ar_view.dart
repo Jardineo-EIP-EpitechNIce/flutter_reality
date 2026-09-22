@@ -11,6 +11,8 @@ import 'package:flutter_reality/managers/ar_object_manager.dart';
 import 'package:flutter_reality/datatypes/config_planedetection.dart';
 
 // Type definitions to enforce a consistent use of the API
+/// Signature for the callback passed to [ARView.onARViewCreated], invoked once
+/// the platform view is ready with the managers used to drive the AR session.
 typedef ARViewCreatedCallback = void Function(
     ARSessionManager arSessionManager,
     ARObjectManager arObjectManager,
@@ -30,6 +32,10 @@ abstract class PlatformARView {
     }
   }
 
+  /// Builds the platform-specific view (an [AndroidView]/[PlatformViewLink]
+  /// on Android, a [UiKitView] on iOS) and wires up [arViewCreatedCallback]
+  /// and [planeDetectionConfig] so they're available once the native view
+  /// calls back through [onPlatformViewCreated].
   Widget build(
       {required BuildContext? context,
       required ARViewCreatedCallback? arViewCreatedCallback,
@@ -155,8 +161,15 @@ class IosARView implements PlatformARView {
 /// If camera permission is not given, the user is prompted to grant it. To modify the UI of the prompts, the following named parameters can be used:
 /// [permissionPromptDescription], [permissionPromptButtonText] and [permissionPromptParentalRestriction].
 class ARView extends StatefulWidget {
+  /// Text shown above the permission button while camera access hasn't been
+  /// granted yet.
   final String permissionPromptDescription;
+
+  /// Label of the button that (re-)requests camera permission.
   final String permissionPromptButtonText;
+
+  /// Text shown instead of the AR view when camera access is restricted by
+  /// the OS (e.g. iOS parental controls) and can't be requested again.
   final String permissionPromptParentalRestriction;
 
   /// Function to be called when the AR View is created

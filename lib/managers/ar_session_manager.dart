@@ -9,8 +9,16 @@ import 'package:flutter/material.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 // Type definitions to enforce a consistent use of the API
+/// Signature for [ARSessionManager.onPlaneOrPointTap]: receives the hit-test
+/// results for a tap that landed on a tracked plane or feature point.
 typedef ARHitResultHandler = void Function(List<ARHitTestResult> hits);
+
+/// Signature for [ARSessionManager.onPlaneDetected]: receives the current
+/// total number of tracked planes whenever a new one is detected.
 typedef ARPlaneResultHandler = void Function(int planeCount);
+
+/// Signature for [ARSessionManager.onError]: receives a human-readable
+/// description of a native session error.
 typedef ErrorHandler = void Function(String error);
 
 /// Manages the session configuration, parameters and events of an [ARView]
@@ -35,6 +43,11 @@ class ARSessionManager {
   /// Callback that is triggered once error is triggered
   ErrorHandler? onError;
 
+  /// Creates the session manager for the [ARView] platform view identified
+  /// by [id]. This is called by [createManagers] once the native view has
+  /// been created; consumers normally receive an already-constructed
+  /// instance through [ARViewCreatedCallback] rather than calling this
+  /// directly.
   ARSessionManager(int id, this.buildContext, this.planeDetectionConfig,
       {this.debug = false}) {
     final suffix = id.toString();
@@ -109,13 +122,13 @@ class ARSessionManager {
     return distance;
   }
 
-  //Disable Camera
+  /// Pauses the native AR session and hides the camera feed.
   Future<void> disableCamera() => _hostApi.disableCamera();
 
-  //Enable Camera
+  /// Resumes the native AR session and shows the camera feed again.
   Future<void> enableCamera() => _hostApi.enableCamera();
 
-  //Show or hide planes
+  /// Shows or hides the visualization of detected planes.
   Future<void> showPlanes(bool showPlanes) => _hostApi.showPlanes(showPlanes);
 
   /// Function to initialize the platform-specific AR view. Can be used to initially set or update session settings.

@@ -191,7 +191,7 @@ Or manually add this to your `pubspec.yaml` file (and run `flutter pub get`):
 
 ```yaml
 dependencies:
-  flutter_reality: ^0.0.3
+  flutter_reality: ^0.1.0
 ```
 
 Or in FlutterFlow : 
@@ -200,7 +200,7 @@ Or in FlutterFlow :
 <td>
 <img src="https://avatars.githubusercontent.com/u/74943865?s=48&amp;v=4" width="30" height="30" style="max-width: 100%; margin-bottom: -9px;"> </img>
 </td>
-<td> Simply add : <br> <b>flutter_reality: ^0.0.3 </b> <br> in pubspecs dependencies of your widget.
+<td> Simply add : <br> <b>flutter_reality: ^0.1.0 </b> <br> in pubspecs dependencies of your widget.
 </td>
 </table>
 

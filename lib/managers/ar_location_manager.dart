@@ -3,7 +3,14 @@ import 'package:geolocator/geolocator.dart';
 
 /// Can be used to get the current location of the device, update it and handle location permissions
 class ARLocationManager {
+  /// The most recently received device location, updated automatically
+  /// while [startLocationUpdates] is active. Reading this before either
+  /// [getLastKnownPosition] or [startLocationUpdates] has completed throws.
   late Position currentLocation;
+
+  /// Active subscription to the device's position stream, or `null` if
+  /// [startLocationUpdates] hasn't been called (or updates were stopped via
+  /// [stopLocationUpdates]).
   StreamSubscription<Position>? locationStream;
 
   /// Returns the last known location of the device or an error, if permissions don't suffice. Automatically queries user permission if possible

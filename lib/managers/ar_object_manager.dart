@@ -6,13 +6,36 @@ import 'package:flutter/foundation.dart';
 import 'package:vector_math/vector_math_64.dart';
 
 // Type definitions to enforce a consistent use of the API
+/// Signature for [ARObjectManager.onNodeTap]: receives the names of the
+/// nodes hit by a tap.
 typedef NodeTapResultHandler = void Function(List<String> nodes);
+
+/// Signature for [ARObjectManager.onPanStart]: receives the name of the node
+/// that started being dragged.
 typedef NodePanStartHandler = void Function(String node);
+
+/// Signature for [ARObjectManager.onPanChange]: receives the name of the
+/// node whose drag position was updated.
 typedef NodePanChangeHandler = void Function(String node);
+
+/// Signature for [ARObjectManager.onPanEnd]: receives the name of the node
+/// that stopped being dragged and its resulting transform.
 typedef NodePanEndHandler = void Function(String node, Matrix4 transform);
+
+/// Signature for [ARObjectManager.onRotationStart]: receives the name of the
+/// node that started being rotated.
 typedef NodeRotationStartHandler = void Function(String node);
+
+/// Signature for [ARObjectManager.onRotationChange]: receives the name of
+/// the node whose rotation was updated.
 typedef NodeRotationChangeHandler = void Function(String node);
+
+/// Signature for [ARObjectManager.onRotationEnd]: receives the name of the
+/// node that stopped being rotated and its resulting transform.
 typedef NodeRotationEndHandler = void Function(String node, Matrix4 transform);
+
+/// Signature for [ARObjectManager.onError]: receives a human-readable
+/// description of a native node-related error.
 typedef NodeErrorHandler = void Function(String error);
 
 /// Manages the all node-related actions of an [ARView]
@@ -24,17 +47,32 @@ class ARObjectManager {
 
   /// Callback function that is invoked when the platform detects a tap on a node
   NodeTapResultHandler? onNodeTap;
+
+  /// Callback triggered when the user starts dragging a placed node.
   NodePanStartHandler? onPanStart;
+
+  /// Callback triggered repeatedly while a placed node is being dragged.
   NodePanChangeHandler? onPanChange;
+
+  /// Callback triggered when the user stops dragging a placed node.
   NodePanEndHandler? onPanEnd;
+
+  /// Callback triggered when the user starts rotating a placed node.
   NodeRotationStartHandler? onRotationStart;
+
+  /// Callback triggered repeatedly while a placed node is being rotated.
   NodeRotationChangeHandler? onRotationChange;
+
+  /// Callback triggered when the user stops rotating a placed node.
   NodeRotationEndHandler? onRotationEnd;
 
   /// Callback that is triggered when the native platform reports a node-related error
   NodeErrorHandler? onError;
   final Map<String, VoidCallback> _transformListeners = {};
 
+  /// Creates the object manager for the [ARView] platform view identified by
+  /// [id]. Consumers normally receive an already-constructed instance
+  /// through [ARViewCreatedCallback] rather than calling this directly.
   ARObjectManager(int id, {this.debug = false}) {
     final suffix = id.toString();
     _hostApi = ARObjectHostApi(messageChannelSuffix: suffix);

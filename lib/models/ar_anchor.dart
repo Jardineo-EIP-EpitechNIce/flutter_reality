@@ -4,6 +4,8 @@ import 'package:flutter/widgets.dart';
 
 /// Object attached to a tracked physical entity of the AR environment (can be initialized with a world transformation)
 abstract class ARAnchor {
+  /// Creates an anchor of the given [type] at [transformation]. If [name] is
+  /// omitted, a unique one is generated.
   ARAnchor({
     required this.type,
     required this.transformation,
@@ -36,6 +38,8 @@ abstract class ARAnchor {
 
 /// An [ARAnchor] fixed to a tracked plane
 class ARPlaneAnchor extends ARAnchor {
+  /// Creates a plane anchor at [transformation]. [childNodes] defaults to an
+  /// empty list and [ttl] defaults to 1 day if omitted.
   ARPlaneAnchor({
     required super.transformation,
     super.name,
@@ -91,6 +95,8 @@ Map<String, dynamic> aRPlaneAnchorToJson(ARPlaneAnchor instance) {
 
 /// An [ARAnchor] type that is not supported yet
 class ARUnkownAnchor extends ARAnchor {
+  /// Creates a placeholder anchor for an [AnchorType] this plugin doesn't
+  /// have a dedicated model class for yet.
   ARUnkownAnchor(
       {required super.type, required super.transformation, super.name});
 

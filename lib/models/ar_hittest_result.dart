@@ -7,6 +7,8 @@ import 'package:vector_math/vector_math_64.dart';
 
 /// A result (type, distance from the camera, world transformation) of an intersection found during a hit-test.
 class ARHitTestResult {
+  /// Creates a hit-test result of the given [type], [distance] from the
+  /// camera in meters, and [worldTransform].
   ARHitTestResult(
     this.type,
     this.distance,

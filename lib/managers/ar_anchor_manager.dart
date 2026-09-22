@@ -2,9 +2,18 @@ import 'package:flutter_reality/models/ar_anchor.dart';
 import 'package:flutter_reality/src/generated/messages.g.dart';
 
 // Type definitions to enforce a consistent use of the API
+/// Signature for [ARAnchorManager.onAnchorUploaded]: receives the anchor
+/// that was successfully uploaded to the Google Cloud Anchor API.
 typedef AnchorUploadedHandler = void Function(ARAnchor arAnchor);
+
+/// Signature for [ARAnchorManager.onAnchorDownloaded]: receives the
+/// serialized anchor downloaded from the Google Cloud Anchor API and must
+/// return the [ARAnchor] to add to the scene.
 typedef AnchorDownloadedHandler = ARAnchor Function(
     Map<String, dynamic> serializedAnchor);
+
+/// Signature for [ARAnchorManager.onError]: receives a human-readable
+/// description of a native anchor-related error.
 typedef AnchorErrorHandler = void Function(String error);
 
 /// Handles all anchor-related functionality of an [ARView], including configuration and usage of collaborative sessions
@@ -26,6 +35,9 @@ class ARAnchorManager {
   /// Callback that is triggered when the native platform reports an anchor-related error
   AnchorErrorHandler? onError;
 
+  /// Creates the anchor manager for the [ARView] platform view identified by
+  /// [id]. Consumers normally receive an already-constructed instance
+  /// through [ARViewCreatedCallback] rather than calling this directly.
   ARAnchorManager(int id, {this.debug = false}) {
     final suffix = id.toString();
     _hostApi = ARAnchorHostApi(messageChannelSuffix: suffix);
