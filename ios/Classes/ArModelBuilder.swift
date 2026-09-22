@@ -148,8 +148,13 @@ class ArModelBuilder: NSObject {
     func makeNodeFromWebGlb(name: String, modelURL: String, transformation: Array<NSNumber>?) -> Future<SCNNode?, Never> {
         
         return Future {promise in
+            guard let requestURL = URL(string: modelURL) else {
+                print("makeNodeFromWebGlb received an invalid URL string: \(modelURL)")
+                promise(.success(nil))
+                return
+            }
             var node: SCNNode? = SCNNode()
-            
+
             let handler: (URL?, URLResponse?, Error?) -> Void = {(url: URL?, urlResponse: URLResponse?, error: Error?) -> Void in
                 // If response code is not 200, link was invalid, so return
                 if ((urlResponse as? HTTPURLResponse)?.statusCode != 200) {
@@ -203,7 +208,7 @@ class ArModelBuilder: NSObject {
             }
             
     
-            let downloadTask = URLSession.shared.downloadTask(with: URL(string: modelURL)!, completionHandler: handler)
+            let downloadTask = URLSession.shared.downloadTask(with: requestURL, completionHandler: handler)
             
             downloadTask.resume()
             

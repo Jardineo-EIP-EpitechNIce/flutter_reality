@@ -373,6 +373,22 @@ class IosARView: NSObject, FlutterPlatformView, ARSCNViewDelegate, UIGestureReco
         )
     }
 
+    // Resolves `relativeUri` against the app's Documents directory and returns nil
+    // if the result would escape it (e.g. via a "../" path-traversal segment).
+    // `node.uri` is developer-supplied on the Dart side, but a host app that
+    // forwards an externally-controlled string (e.g. from a server-driven model
+    // catalog) without validating it could otherwise reach arbitrary files the
+    // app's own sandbox can read/write.
+    private func resolveWithinDocuments(_ relativeUri: String) -> String? {
+        let documentsDirectory = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
+        let resolved = documentsDirectory.appendingPathComponent(relativeUri).standardizedFileURL
+        let base = documentsDirectory.standardizedFileURL
+        if resolved.path == base.path || resolved.path.hasPrefix(base.path + "/") {
+            return resolved.path
+        }
+        return nil
+    }
+
     func loadNode(dict_node: Dictionary<String, Any>, dict_anchor: Dictionary<String, Any>? = nil) -> Future<Bool, Never> {
 
         return Future {promise in
@@ -445,9 +461,11 @@ class IosARView: NSObject, FlutterPlatformView, ARSCNViewDelegate, UIGestureReco
                     break
                 case 2: // GLB Model from the app's documents folder
                     // Get path to given file system asset
-                    let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-                    let documentsDirectory = paths[0]
-                    let targetPath = documentsDirectory.appendingPathComponent(dict_node["uri"] as! String).path
+                    guard let targetPath = self.resolveWithinDocuments(dict_node["uri"] as! String) else {
+                        Task { @MainActor in try? await self.sessionFlutterApi.onError(message: "Invalid uri: path escapes the app's documents folder") }
+                        promise(.success(false))
+                        break
+                    }
 
                     // Add object to scene
                     if let node: SCNNode = self.modelBuilder.makeNodeFromFileSystemGLB(name: dict_node["name"] as! String, modelPath: targetPath, transformation: dict_node["transformation"] as? Array<NSNumber>) {
@@ -479,9 +497,11 @@ class IosARView: NSObject, FlutterPlatformView, ARSCNViewDelegate, UIGestureReco
                     break
                 case 3: //fileSystemAppFolderGLTF2
                     // Get path to given file system asset
-                    let paths = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)
-                    let documentsDirectory = paths[0]
-                    let targetPath = documentsDirectory.appendingPathComponent(dict_node["uri"] as! String).path
+                    guard let targetPath = self.resolveWithinDocuments(dict_node["uri"] as! String) else {
+                        Task { @MainActor in try? await self.sessionFlutterApi.onError(message: "Invalid uri: path escapes the app's documents folder") }
+                        promise(.success(false))
+                        break
+                    }
 
                     // Add object to scene
                     if let node: SCNNode = self.modelBuilder.makeNodeFromFileSystemGltf(name: dict_node["name"] as! String, modelPath: targetPath, transformation: dict_node["transformation"] as? Array<NSNumber>) {

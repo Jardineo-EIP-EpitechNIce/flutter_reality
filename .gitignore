@@ -40,6 +40,10 @@ ios/Runner.xcworkspace/
 ios/Runner.xcodeproj/
 ios/build/
 
+# Google Cloud Anchor service-account key (see cloudAnchorSetup.md) - never commit
+cloudAnchorKey.json
+**/cloudAnchorKey.json
+
 # Output and temporary files
 repomix-output.txt
 *.log

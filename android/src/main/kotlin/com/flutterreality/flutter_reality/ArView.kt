@@ -2,6 +2,7 @@ package com.flutterreality.flutter_reality
 
 import android.app.Activity
 import android.content.Context
+import java.io.File
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.Looper
@@ -145,6 +146,22 @@ class ArView(
         }
     }
 
+    // Resolves `relativeUri` against `baseDir` and returns null if the result would
+    // escape `baseDir` (e.g. via a "../" path-traversal segment). `node.uri` is
+    // developer-supplied on the Dart side, but a host app that forwards an
+    // externally-controlled string (e.g. from a server-driven model catalog)
+    // without validating it could otherwise reach arbitrary files the app's own
+    // sandbox can read/write.
+    private fun resolveWithinBaseDir(baseDir: File, relativeUri: String): String? {
+        val resolved = File(baseDir, relativeUri).canonicalFile
+        val canonicalBase = baseDir.canonicalFile
+        return if (resolved.path == canonicalBase.path || resolved.path.startsWith(canonicalBase.path + File.separator)) {
+            resolved.path
+        } else {
+            null
+        }
+    }
+
     private suspend fun buildModelNode(node: NodeMessage): ModelNode? {
         var fileLocation = node.uri ?: return null
         when (node.type.toInt()) {
@@ -157,8 +174,8 @@ class ArView(
             2 -> { // fileSystemAppFolderGLB
             }
             3 -> { // fileSystemAppFolderGLTF2
-                val documentsPath = viewContext.getApplicationInfo().dataDir
-                fileLocation = documentsPath + "/app_flutter/" + node.uri
+                val baseDir = File(viewContext.getApplicationInfo().dataDir, "app_flutter")
+                fileLocation = resolveWithinBaseDir(baseDir, fileLocation) ?: return null
             }
             else -> {
                 return null
