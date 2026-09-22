@@ -6,19 +6,23 @@ import 'package:flutter_reality/managers/ar_anchor_manager.dart';
 import 'package:flutter_reality/managers/ar_location_manager.dart';
 import 'package:flutter_reality/managers/ar_object_manager.dart';
 import 'package:flutter_reality/managers/ar_session_manager.dart';
+import 'package:flutter_reality/src/generated/messages.g.dart';
 
-/// Simulates a native platform call arriving on [channelName], the way real
-/// native code would invoke a Dart-side `setMethodCallHandler`.
+/// Simulates a native -> Dart Pigeon `FlutterApi` call arriving on
+/// [channelName], the way real native code would invoke it through the
+/// generated `BasicMessageChannel`.
 Future<void> simulateNativeCall(
   String channelName,
-  String method,
-  dynamic arguments,
+  MessageCodec<Object?> codec,
+  List<Object?> args,
 ) {
-  final data = const StandardMethodCodec()
-      .encodeMethodCall(MethodCall(method, arguments));
+  final data = codec.encodeMessage(args);
   return TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
       .handlePlatformMessage(channelName, data, (ByteData? _) {});
 }
+
+String _channel(String api, String method, int suffix) =>
+    'dev.flutter.pigeon.flutter_reality.$api.$method.$suffix';
 
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
@@ -40,8 +44,16 @@ void main() {
       );
 
       // onPlaneOrPointTap and onPlaneDetected are left unset (null) on purpose.
-      await simulateNativeCall('arsession_2', 'onPlaneDetected', 3);
-      await simulateNativeCall('arsession_2', 'onPlaneOrPointTap', <dynamic>[]);
+      await simulateNativeCall(
+        _channel('ARSessionFlutterApi', 'onPlaneDetected', 2),
+        ARSessionFlutterApi.pigeonChannelCodec,
+        <Object?>[3],
+      );
+      await simulateNativeCall(
+        _channel('ARSessionFlutterApi', 'onPlaneOrPointTap', 2),
+        ARSessionFlutterApi.pigeonChannelCodec,
+        <Object?>[<HitTestResultMessage>[]],
+      );
     });
 
     testWidgets('forwards a detected plane count to onPlaneDetected',
@@ -61,9 +73,47 @@ void main() {
       int? reportedCount;
       manager.onPlaneDetected = (count) => reportedCount = count;
 
-      await simulateNativeCall('arsession_3', 'onPlaneDetected', 5);
+      await simulateNativeCall(
+        _channel('ARSessionFlutterApi', 'onPlaneDetected', 3),
+        ARSessionFlutterApi.pigeonChannelCodec,
+        <Object?>[5],
+      );
 
       expect(reportedCount, 5);
+    });
+
+    testWidgets('forwards hit test results to onPlaneOrPointTap',
+        (tester) async {
+      late BuildContext capturedContext;
+      await tester.pumpWidget(Builder(builder: (context) {
+        capturedContext = context;
+        return const SizedBox();
+      }));
+
+      final manager = ARSessionManager(
+        6,
+        capturedContext,
+        PlaneDetectionConfig.horizontalAndVertical,
+      );
+
+      int? reportedCount;
+      manager.onPlaneOrPointTap = (hits) => reportedCount = hits.length;
+
+      await simulateNativeCall(
+        _channel('ARSessionFlutterApi', 'onPlaneOrPointTap', 6),
+        ARSessionFlutterApi.pigeonChannelCodec,
+        <Object?>[
+          <HitTestResultMessage>[
+            HitTestResultMessage(
+              type: 1,
+              distance: 1.5,
+              worldTransform: List<double>.filled(16, 0)..[0] = 1,
+            ),
+          ],
+        ],
+      );
+
+      expect(reportedCount, 1);
     });
   });
 
@@ -73,9 +123,39 @@ void main() {
       String? reportedError;
       manager.onError = (error) => reportedError = error;
 
-      await simulateNativeCall('aranchors_4', 'onError', 'anchor failed');
+      await simulateNativeCall(
+        _channel('ARAnchorFlutterApi', 'onError', 4),
+        ARAnchorFlutterApi.pigeonChannelCodec,
+        <Object?>['anchor failed'],
+      );
 
       expect(reportedError, 'anchor failed');
+    });
+
+    test('returns the downloaded anchor name back to native by default',
+        () async {
+      ARAnchorManager(7);
+
+      final data = ARAnchorFlutterApi.pigeonChannelCodec.encodeMessage(
+        <Object?>[
+          AnchorMessage(
+            type: 0,
+            name: 'downloaded-anchor',
+            transformation: List<double>.filled(16, 0),
+          ),
+        ],
+      );
+      ByteData? response;
+      await TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger
+          .handlePlatformMessage(
+        _channel('ARAnchorFlutterApi', 'onAnchorDownloadSuccess', 7),
+        data,
+        (ByteData? reply) => response = reply,
+      );
+
+      final decoded = ARAnchorFlutterApi.pigeonChannelCodec
+          .decodeMessage(response) as List<Object?>;
+      expect(decoded[0], 'downloaded-anchor');
     });
   });
 
@@ -85,9 +165,32 @@ void main() {
       String? reportedError;
       manager.onError = (error) => reportedError = error;
 
-      await simulateNativeCall('arobjects_5', 'onError', 'node failed');
+      await simulateNativeCall(
+        _channel('ARObjectFlutterApi', 'onError', 5),
+        ARObjectFlutterApi.pigeonChannelCodec,
+        <Object?>['node failed'],
+      );
 
       expect(reportedError, 'node failed');
+    });
+
+    test('forwards onPanEnd with the decoded transform', () async {
+      final manager = ARObjectManager(8);
+      String? reportedName;
+      manager.onPanEnd = (name, transform) => reportedName = name;
+
+      await simulateNativeCall(
+        _channel('ARObjectFlutterApi', 'onPanEnd', 8),
+        ARObjectFlutterApi.pigeonChannelCodec,
+        <Object?>[
+          NodeTransformEventMessage(
+            name: 'node-1',
+            transform: List<double>.filled(16, 0)..[0] = 1,
+          ),
+        ],
+      );
+
+      expect(reportedName, 'node-1');
     });
   });
 

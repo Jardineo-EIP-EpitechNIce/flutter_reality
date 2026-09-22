@@ -8,6 +8,10 @@ import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 
+private class FlutterRealityHostApiImpl : FlutterRealityHostApi {
+    override suspend fun getPlatformVersion(): String = "Android ${android.os.Build.VERSION.RELEASE}"
+}
+
 class ArFlutterPlugin: FlutterPlugin, ActivityAware {
     private var activity: Activity? = null
     private var lifecycle: Lifecycle? = null
@@ -17,10 +21,12 @@ class ArFlutterPlugin: FlutterPlugin, ActivityAware {
     override fun onAttachedToEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         Log.i(TAG, "onAttachedToEngine")
         flutterPluginBinding = binding
+        FlutterRealityHostApi.setUp(binding.binaryMessenger, FlutterRealityHostApiImpl())
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
         Log.i(TAG, "onDetachedFromEngine")
+        FlutterRealityHostApi.setUp(binding.binaryMessenger, null)
         flutterPluginBinding = null
     }
 

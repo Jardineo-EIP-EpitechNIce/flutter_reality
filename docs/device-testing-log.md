@@ -454,3 +454,47 @@ accumulating as the camera keeps scanning during the test (expected
 session behavior, not code we control), rather than a leak in this
 plugin, but this wasn't independently isolated and confirmed — worth
 another look if memory growth becomes a real-world complaint.
+
+### Pigeon migration — Android smoke test (Pixel 9a)
+
+After rewriting every platform channel to use generated Pigeon `HostApi`/`FlutterApi`
+code (see CHANGELOG for the full rationale and bug fixes this surfaced), ran a clean
+`flutter build apk --debug` + `flutter run -d 63281JEBF11630 --debug` on the Pixel 9a
+and monitored `adb logcat` throughout:
+
+- Build and install succeeded with no Kotlin compile errors (after fixing a real
+  issue: `ARSessionHostApi.dispose()` and `PlatformView.dispose()` share a name but
+  are unrelated contracts — Kotlin rejects a class inheriting two conflicting
+  `dispose()` members from different supertypes, so `ARSessionHostApi` is now
+  implemented by a small private inner class instead of directly on `ArView`).
+- App launched cleanly: ARCore session created, no crashes or exceptions in logcat
+  during startup.
+- Confirmed the `ARSessionHostApi.initialize(config)` round-trip actually works
+  end-to-end on-device: the ARCore session's `plane_finding_mode` visibly changed
+  from `DISABLED` to `HORIZONTAL_AND_VERTICAL` in the native ARCore debug log,
+  matching the `PlaneDetectionConfig.horizontalAndVertical` the example app passes
+  from Dart — this is real evidence the new typed Dart → native call path works, not
+  just that it compiles.
+- Ran for ~40s with no exceptions, `FlutterError`s, or `MissingPluginException`s in
+  the log.
+- Could not complete a full interactive pass (tap-to-place, pan, rotate, node
+  removal, anchor upload/download) in this session: the device's screen went into a
+  locked/dozing state mid-session and `adb`-driven unlock attempts got stuck on the
+  notification shade, and place/pan/rotate testing fundamentally needs a human
+  moving the physical device for ARCore to track a real plane, which automated
+  `adb input tap` cannot substitute for. This remains open for a follow-up manual
+  session — the smoke test above is solid evidence the plumbing works, but it is not
+  a substitute for exercising every callback path from real gestures.
+
+iOS was not touched physically at all this session (no iPhone available, consistent
+with the whole session's plan) — the only verification for the Swift rewrite is the
+`ios-build` CI job's `flutter build ios --no-codesign --debug`, which compiles but
+does not run the code. Two things worth flagging for whoever does the first real
+iOS test pass: `ARSessionHostApi.disableCamera`/`enableCamera` are new on iOS this
+migration (previously unimplemented, now backed by `ARSession.pause()/run()`) and
+have never been exercised at all; and `addPlaneAnchor`'s existing busy-wait loop
+(`while sceneView.node(for: arAnchor) == nil { usleep(1) }`) blocks the calling
+thread until SceneKit's own render-loop delegate callback attaches the anchor's
+node — this is pre-existing behavior, not something this migration touched, but on
+the main actor under Pigeon's structured concurrency it's worth a first look in
+case it behaves differently than the old completion-handler-based dispatch.

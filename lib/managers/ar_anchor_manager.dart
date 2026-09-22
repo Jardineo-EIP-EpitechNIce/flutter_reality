@@ -1,5 +1,5 @@
 import 'package:flutter_reality/models/ar_anchor.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter_reality/src/generated/messages.g.dart';
 
 // Type definitions to enforce a consistent use of the API
 typedef AnchorUploadedHandler = void Function(ARAnchor arAnchor);
@@ -9,8 +9,7 @@ typedef AnchorErrorHandler = void Function(String error);
 
 /// Handles all anchor-related functionality of an [ARView], including configuration and usage of collaborative sessions
 class ARAnchorManager {
-  /// Platform channel used for communication from and to [ARAnchorManager]
-  late MethodChannel _channel;
+  late ARAnchorHostApi _hostApi;
 
   /// Debugging status flag. If true, all platform calls are printed. Defaults to false.
   final bool debug;
@@ -28,8 +27,12 @@ class ARAnchorManager {
   AnchorErrorHandler? onError;
 
   ARAnchorManager(int id, {this.debug = false}) {
-    _channel = MethodChannel('aranchors_$id');
-    _channel.setMethodCallHandler(_platformCallHandler);
+    final suffix = id.toString();
+    _hostApi = ARAnchorHostApi(messageChannelSuffix: suffix);
+    ARAnchorFlutterApi.setUp(
+      _AnchorEventHandler(this),
+      messageChannelSuffix: suffix,
+    );
     if (debug) {
       print("ARAnchorManager initialized");
     }
@@ -37,60 +40,14 @@ class ARAnchorManager {
 
   /// Activates collaborative AR mode (using Google Cloud Anchors)
   Future<void> initGoogleCloudAnchorMode() async {
-    await _channel.invokeMethod<bool>('initGoogleCloudAnchorMode', {});
-  }
-
-  Future<dynamic> _platformCallHandler(MethodCall call) async {
-    if (debug) {
-      print('_platformCallHandler call ${call.method} ${call.arguments}');
-    }
-    try {
-      switch (call.method) {
-        case 'onError':
-          print(call.arguments);
-          onError?.call(call.arguments as String);
-          break;
-        case 'onCloudAnchorUploaded':
-          final name = call.arguments["name"];
-          final cloudanchorid = call.arguments["cloudanchorid"];
-          print(
-              "UPLOADED ANCHOR WITH ID: " + cloudanchorid + ", NAME: " + name);
-          final currentAnchor =
-              pendingAnchors.where((element) => element.name == name).first;
-          // Update anchor with cloud anchor ID
-          (currentAnchor as ARPlaneAnchor).cloudanchorid = cloudanchorid;
-          // Remove anchor from list of pending anchors
-          pendingAnchors.remove(currentAnchor);
-          // Notify callback
-          if (onAnchorUploaded != null) {
-            onAnchorUploaded!(currentAnchor);
-          }
-          break;
-        case "onAnchorDownloadSuccess":
-          final serializedAnchor = call.arguments;
-          if (onAnchorDownloaded != null) {
-            ARAnchor anchor = onAnchorDownloaded!(
-                Map<String, dynamic>.from(serializedAnchor));
-            return anchor.name;
-          } else {
-            return serializedAnchor["name"];
-          }
-        default:
-          if (debug) {
-            print('Unimplemented method ${call.method} ');
-          }
-      }
-    } catch (e) {
-      print('Error caught: ' + e.toString());
-    }
-    return Future.value();
+    await _hostApi.initGoogleCloudAnchorMode();
   }
 
   /// Add given anchor to the underlying AR scene
   Future<bool?> addAnchor(ARAnchor anchor) async {
     try {
-      return await _channel.invokeMethod<bool>('addAnchor', anchor.toJson());
-    } on PlatformException catch (e) {
+      return await _hostApi.addAnchor(_toAnchorMessage(anchor));
+    } catch (e) {
       print('Error caught: ' + e.toString());
       return false;
     }
@@ -98,17 +55,16 @@ class ARAnchorManager {
 
   /// Remove given anchor and all its children from the AR Scene
   Future<void> removeAnchor(ARAnchor anchor) {
-    return _channel.invokeMethod<String>('removeAnchor', {'name': anchor.name});
+    return _hostApi.removeAnchor(anchor.name);
   }
 
   /// Upload given anchor from the underlying AR scene to the Google Cloud Anchor API
   Future<bool?> uploadAnchor(ARAnchor anchor) async {
     try {
-      final response =
-          await _channel.invokeMethod<bool>('uploadAnchor', anchor.toJson());
+      final response = await _hostApi.uploadAnchor(anchor.name);
       pendingAnchors.add(anchor);
       return response;
-    } on PlatformException catch (e) {
+    } catch (e) {
       print('Error caught: ' + e.toString());
       return false;
     }
@@ -117,7 +73,64 @@ class ARAnchorManager {
   /// Try to download anchor with the given ID from the Google Cloud Anchor API and add it to the scene
   Future<bool?> downloadAnchor(String cloudanchorid) async {
     print('TRYING TO DOWNLOAD ANCHOR WITH ID $cloudanchorid');
-    return await _channel
-        .invokeMethod<bool>('downloadAnchor', {'cloudanchorid': cloudanchorid});
+    return await _hostApi.downloadAnchor(cloudanchorid);
+  }
+
+  AnchorMessage _toAnchorMessage(ARAnchor anchor) {
+    final map = anchor.toJson();
+    return AnchorMessage(
+      type: map['type'] as int,
+      name: map['name'] as String,
+      transformation: (map['transformation'] as List).cast<double>(),
+      childNodes: (map['childNodes'] as List?)?.cast<String>(),
+      cloudAnchorId: map['cloudanchorid'] as String?,
+      ttl: map['ttl'] as int?,
+    );
+  }
+}
+
+/// Forwards Pigeon-generated `ARAnchorFlutterApi` callbacks to
+/// [ARAnchorManager]'s public callback fields. Kept as a separate class
+/// because the callback field names (`onError`, ...) are intentionally
+/// identical to the interface method names, which a class can't both
+/// declare as a field and implement as a method.
+class _AnchorEventHandler implements ARAnchorFlutterApi {
+  _AnchorEventHandler(this._manager);
+
+  final ARAnchorManager _manager;
+
+  @override
+  void onError(String message) {
+    print(message);
+    _manager.onError?.call(message);
+  }
+
+  @override
+  void onCloudAnchorUploaded(CloudAnchorUploadedMessage event) {
+    print(
+        'UPLOADED ANCHOR WITH ID: ${event.cloudAnchorId}, NAME: ${event.name}');
+    final currentAnchor = _manager.pendingAnchors
+        .where((element) => element.name == event.name)
+        .first;
+    (currentAnchor as ARPlaneAnchor).cloudanchorid = event.cloudAnchorId;
+    _manager.pendingAnchors.remove(currentAnchor);
+    _manager.onAnchorUploaded?.call(currentAnchor);
+  }
+
+  @override
+  String onAnchorDownloadSuccess(AnchorMessage anchor) {
+    final serializedAnchor = <String, dynamic>{
+      'type': anchor.type,
+      'name': anchor.name,
+      'transformation': anchor.transformation,
+      'childNodes': anchor.childNodes,
+      'cloudanchorid': anchor.cloudAnchorId,
+      'ttl': anchor.ttl,
+    };
+    if (_manager.onAnchorDownloaded != null) {
+      final downloaded = _manager.onAnchorDownloaded!(serializedAnchor);
+      return downloaded.name;
+    }
+    return anchor.name;
   }
 }

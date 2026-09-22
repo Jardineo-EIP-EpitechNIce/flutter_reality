@@ -9,7 +9,6 @@ import android.util.Log
 import android.view.LayoutInflater
 import android.view.MotionEvent
 import android.view.PixelCopy
-import android.view.ScaleGestureDetector
 import android.view.View
 import android.view.ViewGroup
 import android.widget.FrameLayout
@@ -21,17 +20,14 @@ import com.google.ar.core.Plane
 import com.google.ar.core.Pose
 import com.google.ar.core.TrackingState
 import com.flutterreality.flutter_reality.Serialization.deserializeMatrix4
-import com.flutterreality.flutter_reality.Serialization.serializeHitResult
+import com.flutterreality.flutter_reality.Serialization.serializePose
 import io.flutter.plugin.common.BinaryMessenger
-import io.flutter.plugin.common.MethodCall
-import io.flutter.plugin.common.MethodChannel
 import io.flutter.plugin.platform.PlatformView
 import io.github.sceneview.ar.ARSceneView
 import io.github.sceneview.ar.arcore.canHostCloudAnchor
 import io.github.sceneview.ar.arcore.fps
 import io.github.sceneview.ar.node.AnchorNode
 import io.github.sceneview.ar.node.CloudAnchorNode
-import io.github.sceneview.ar.node.HitResultNode
 import io.github.sceneview.gesture.MoveGestureDetector
 import io.github.sceneview.gesture.RotateGestureDetector
 import io.github.sceneview.math.Position
@@ -42,7 +38,9 @@ import io.github.sceneview.node.Node
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import io.github.sceneview.math.Position as ScenePosition
 import io.github.sceneview.math.Rotation as SceneRotation
 import io.github.sceneview.math.Scale as SceneScale
@@ -62,11 +60,12 @@ class ArView(
     context: Context,
     private val activity: Activity,
     private val lifecycle: Lifecycle,
-    messenger: BinaryMessenger,
+    private val messenger: BinaryMessenger,
     id: Int,
-) : PlatformView {
+) : PlatformView, ARObjectHostApi, ARAnchorHostApi {
     private val TAG: String = ArView::class.java.name
     private val viewId: Int = id
+    private val channelSuffix: String = id.toString()
     private val viewContext: Context = context
     private var sceneView: ARSceneView
     private val mainScope = CoroutineScope(Dispatchers.Main)
@@ -74,11 +73,10 @@ class ArView(
 
     private val rootLayout: ViewGroup = FrameLayout(context)
 
-    private val sessionChannel: MethodChannel = MethodChannel(messenger, "arsession_$id")
-    private val objectChannel: MethodChannel = MethodChannel(messenger, "arobjects_$id")
-    private val anchorChannel: MethodChannel = MethodChannel(messenger, "aranchors_$id")
+    private val sessionFlutterApi = ARSessionFlutterApi(messenger, channelSuffix)
+    private val objectFlutterApi = ARObjectFlutterApi(messenger, channelSuffix)
+    private val anchorFlutterApi = ARAnchorFlutterApi(messenger, channelSuffix)
     private val nodesMap = mutableMapOf<String, ModelNode>()
-    private var planeCount = 0
     private var selectedNode: Node? = null
     private val detectedPlanes = mutableSetOf<Plane>()
     private val anchorNodesMap = mutableMapOf<String, AnchorNode>()
@@ -88,7 +86,7 @@ class ArView(
     private var lastPointCloudTimestamp: Long? = null
     private var lastPointCloudFrame: Frame? = null
     private var pointCloudModelInstances = mutableListOf<ModelInstance>()
-    private var handlePans = false  
+    private var handlePans = false
     private var handleRotation = false
     private var isSessionPaused = false
 
@@ -97,78 +95,6 @@ class ArView(
         var id: Int,
         var confidence: Float,
     ) : ModelNode(modelInstance)
-
-    private val onSessionMethodCall =
-        MethodChannel.MethodCallHandler { call, result ->
-            when (call.method) {
-                "init" -> handleInit(call, result)
-                "showPlanes" -> handleShowPlanes(call, result)
-                "dispose" -> {
-                    dispose()
-                    result.success(null)
-                }
-                "getAnchorPose" -> handleGetAnchorPose(call, result)
-                "getCameraPose" -> handleGetCameraPose(result)
-                "snapshot" -> handleSnapshot(result)
-                "disableCamera" -> handleDisableCamera(result)
-                "enableCamera" -> handleEnableCamera(result)
-                else -> result.notImplemented()
-            }
-        }
-    private fun handleDisableCamera(result: MethodChannel.Result) {
-        try {
-            isSessionPaused = true
-            sceneView.session?.pause()
-            result.success(null)
-        } catch (e: Exception) {
-            result.error("DISABLE_CAMERA_ERROR", e.message, null)
-        }
-    }
-    private fun handleEnableCamera(result: MethodChannel.Result) {
-        try {
-            isSessionPaused = false
-            sceneView.session?.resume()
-            result.success(null)
-        } catch (e: Exception) {
-            result.error("ENABLE_CAMERA_ERROR", e.message, null)
-        }
-    }
-    private val onObjectMethodCall =
-        MethodChannel.MethodCallHandler { call, result ->
-            when (call.method) {
-                "init" -> result.success(null)
-                "addNode" -> {
-                    val nodeData = call.arguments as? Map<String, Any>
-                    nodeData?.let {
-                        handleAddNode(it, result)
-                    } ?: result.error("INVALID_ARGUMENTS", "Node data is required", null)
-                }
-                "addNodeToPlaneAnchor" -> handleAddNodeToPlaneAnchor(call, result)
-                "addNodeToScreenPosition" -> handleAddNodeToScreenPosition(call, result)
-                "removeNode" -> {
-                    handleRemoveNode(call, result)
-                }
-                "transformationChanged" -> {
-                    handleTransformNode(call, result)
-                }
-                else -> result.notImplemented()
-            }
-        }
-
-    private val onAnchorMethodCall =
-        MethodChannel.MethodCallHandler { call, result ->
-            when (call.method) {
-                "addAnchor" -> handleAddAnchor(call, result)
-                "removeAnchor" -> {
-                    val anchorName = call.argument<String>("name")
-                    handleRemoveAnchor(anchorName, result)
-                }
-                "initGoogleCloudAnchorMode" -> handleInitGoogleCloudAnchorMode(result)
-                "uploadAnchor" -> handleUploadAnchor(call, result)
-                "downloadAnchor" -> handleDownloadAnchor(call, result)
-                else -> result.notImplemented()
-            }
-        }
 
     init {
         Log.i(TAG, "init: viewId=$viewId lifecycleState=${lifecycle.currentState}")
@@ -188,50 +114,59 @@ class ArView(
                 // The lifecycle-driven session resume (e.g. after the app returns
                 // from background) can fail natively without ever reaching Dart.
                 // Surface it explicitly instead of leaving the AR view silently black.
-                sessionChannel.invokeMethod(
-                    "onError",
-                    listOf("AR session failed: ${exception.message}"),
-                )
+                mainScope.launch {
+                    sessionFlutterApi.onError("AR session failed: ${exception.message}")
+                }
             },
         )
 
         rootLayout.addView(sceneView)
 
-        sessionChannel.setMethodCallHandler(onSessionMethodCall)
-        objectChannel.setMethodCallHandler(onObjectMethodCall)
-        anchorChannel.setMethodCallHandler(onAnchorMethodCall)
+        ARSessionHostApi.setUp(messenger, SessionApiHandler(), channelSuffix)
+        ARObjectHostApi.setUp(messenger, this, channelSuffix)
+        ARAnchorHostApi.setUp(messenger, this, channelSuffix)
     }
 
-    
+    private suspend fun disableCameraImpl() {
+        try {
+            isSessionPaused = true
+            sceneView.session?.pause()
+        } catch (e: Exception) {
+            throw FlutterError("DISABLE_CAMERA_ERROR", e.message, null)
+        }
+    }
 
-    private suspend fun buildModelNode(nodeData: Map<String, Any>): ModelNode? {
-        var fileLocation = nodeData["uri"] as? String ?: return null
-        when (nodeData["type"] as Int) {
-                0 -> { // GLTF2 Model from Flutter asset folder
-                    // Get path to given Flutter asset
-                    val loader = FlutterInjector.instance().flutterLoader()
-                    fileLocation = loader.getLookupKeyForAsset(fileLocation)
-                }
-                1 -> { // GLB Model from the web
-                    fileLocation = fileLocation
-                }
-                2 -> { // fileSystemAppFolderGLB
-                    fileLocation = fileLocation
-                }
-                 3 -> { //fileSystemAppFolderGLTF2
-                    val documentsPath = viewContext.getApplicationInfo().dataDir
-                    val fileLocation = documentsPath + "/app_flutter/" + nodeData["uri"] as String
-                 }
-                else -> {
-                    return null
-                }
+    private suspend fun enableCameraImpl() {
+        try {
+            isSessionPaused = false
+            sceneView.session?.resume()
+        } catch (e: Exception) {
+            throw FlutterError("ENABLE_CAMERA_ERROR", e.message, null)
         }
-        
-        if (fileLocation == null) {
-            return null
+    }
+
+    private suspend fun buildModelNode(node: NodeMessage): ModelNode? {
+        var fileLocation = node.uri ?: return null
+        when (node.type.toInt()) {
+            0 -> { // GLTF2 Model from Flutter asset folder
+                val loader = FlutterInjector.instance().flutterLoader()
+                fileLocation = loader.getLookupKeyForAsset(fileLocation)
+            }
+            1 -> { // GLB Model from the web
+            }
+            2 -> { // fileSystemAppFolderGLB
+            }
+            3 -> { // fileSystemAppFolderGLTF2
+                val documentsPath = viewContext.getApplicationInfo().dataDir
+                fileLocation = documentsPath + "/app_flutter/" + node.uri
+            }
+            else -> {
+                return null
+            }
         }
-        val transformation = nodeData["transformation"] as? ArrayList<Double>
-        if (transformation == null) {
+
+        val transformation = node.transformation
+        if (transformation.isEmpty()) {
             return null
         }
 
@@ -242,38 +177,43 @@ class ArView(
                     scaleToUnits = transformation.first().toFloat(),
                 ) {
                     override fun onMove(detector: MoveGestureDetector, e: MotionEvent): Boolean {
-                            if (handlePans) {
+                        if (handlePans) {
                             val defaultResult = super.onMove(detector, e)
-                            objectChannel.invokeMethod("onPanChange", name)
+                            name?.let { n -> mainScope.launch { objectFlutterApi.onPanChange(n) } }
                             return defaultResult
-                            }
-                    return false
+                        }
+                        return false
                     }
-                    
+
                     override fun onMoveBegin(detector: MoveGestureDetector, e: MotionEvent): Boolean {
                         if (handlePans) {
                             val defaultResult = super.onMoveBegin(detector, e)
-                            objectChannel.invokeMethod("onPanStart", name)
-                            defaultResult
-                        } 
+                            name?.let { n -> mainScope.launch { objectFlutterApi.onPanStart(n) } }
+                            return defaultResult
+                        }
                         return false
                     }
-                    
+
                     override fun onMoveEnd(detector: MoveGestureDetector, e: MotionEvent) {
                         if (handlePans) {
                             super.onMoveEnd(detector, e)
-                            val transformMap = mapOf(
-                                "name" to name,
-                                "transform" to transform.toFloatArray().toList()
-                            )
-                            objectChannel.invokeMethod("onPanEnd", transformMap)
+                            name?.let { n ->
+                                mainScope.launch {
+                                    objectFlutterApi.onPanEnd(
+                                        NodeTransformEventMessage(
+                                            name = n,
+                                            transform = transform.toFloatArray().map { it.toDouble() },
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     }
 
                     override fun onRotateBegin(detector: RotateGestureDetector, e: MotionEvent): Boolean {
                         if (handleRotation) {
                             val defaultResult = super.onRotateBegin(detector, e)
-                            objectChannel.invokeMethod("onRotationStart", name)
+                            name?.let { n -> mainScope.launch { objectFlutterApi.onRotationStart(n) } }
                             return defaultResult
                         }
                         return false
@@ -282,7 +222,7 @@ class ArView(
                     override fun onRotate(detector: RotateGestureDetector, e: MotionEvent): Boolean {
                         if (handleRotation) {
                             val defaultResult = super.onRotate(detector, e)
-                            objectChannel.invokeMethod("onRotationChange", name)
+                            name?.let { n -> mainScope.launch { objectFlutterApi.onRotationChange(n) } }
                             return defaultResult
                         }
                         return false
@@ -291,11 +231,16 @@ class ArView(
                     override fun onRotateEnd(detector: RotateGestureDetector, e: MotionEvent) {
                         if (handleRotation) {
                             super.onRotateEnd(detector, e)
-                            val transformMap = mapOf(
-                                "name" to name,
-                                "transform" to transform.toFloatArray().toList()
-                            )
-                            objectChannel.invokeMethod("onRotationEnd", transformMap)
+                            name?.let { n ->
+                                mainScope.launch {
+                                    objectFlutterApi.onRotationEnd(
+                                        NodeTransformEventMessage(
+                                            name = n,
+                                            transform = transform.toFloatArray().map { it.toDouble() },
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     }
                 }.apply {
@@ -322,10 +267,8 @@ class ArView(
                     // handleScale flag (no Dart-side control over it, no tests for it), leave
                     // pinch-to-scale off rather than ship an uncontrolled, untested capability.
                     isScaleEditable = false
-                    name = nodeData["name"] as? String
+                    name = node.name
                 }
-            } ?: run {
-                null
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -333,90 +276,23 @@ class ArView(
         }
     }
 
-    private fun handleAddNodeToPlaneAnchor(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
-        try {
-            val nodeData = call.arguments as? Map<String, Any>
-            val dict_node = nodeData?.get("node") as? Map<String, Any>
-            val dict_anchor = nodeData?.get("anchor") as? Map<String, Any>
-            if (dict_node == null || dict_anchor == null) {
-                result.success(false)
-                return
-            }
-
-            val anchorName = dict_anchor["name"] as? String
-            val anchorNode = anchorNodesMap[anchorName]
-            if (anchorNode != null) {
-                mainScope.launch {
-                    try {
-                        buildModelNode(dict_node)?.let { node ->
-                            anchorNode.addChildNode(node)
-                            sceneView.addChildNode(anchorNode)
-                            node.name?.let { nodeName ->
-                                nodesMap[nodeName] = node
-                            }
-                            result.success(true)
-                        } ?: result.success(false)
-                    } catch (e: Exception) {
-                        result.success(false)
-                    }
-                }
-            } else {
-                result.success(false)
-            }
+    override suspend fun addNodeToPlaneAnchor(node: NodeMessage, anchor: AnchorMessage): Boolean {
+        val anchorNode = anchorNodesMap[anchor.name] ?: return false
+        return try {
+            val builtNode = buildModelNode(node) ?: return false
+            anchorNode.addChildNode(builtNode)
+            sceneView.addChildNode(anchorNode)
+            builtNode.name?.let { nodesMap[it] = builtNode }
+            true
         } catch (e: Exception) {
-            result.success(false)
+            false
         }
     }
 
-    private fun handleAddNodeToScreenPosition(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    private suspend fun initSession(config: SessionConfigMessage) {
         try {
-            val nodeData = call.arguments as? Map<String, Any>
-            val screenPosition = call.argument<Map<String, Double>>("screenPosition")
-
-            if (nodeData == null || screenPosition == null) {
-                result.error("INVALID_ARGUMENT", "Node data or screen position is null", null)
-                return
-            }
-
-            mainScope.launch {
-                val node = buildModelNode(nodeData) ?: return@launch
-                val hitResultNode =
-                    HitResultNode(
-                        engine = sceneView.engine,
-                        xPx = screenPosition["x"]?.toFloat() ?: 0f,
-                        yPx = screenPosition["y"]?.toFloat() ?: 0f,
-                    ).apply {
-                        addChildNode(node)
-                    }
-
-                sceneView.addChildNode(hitResultNode)
-                result.success(null)
-            }
-        } catch (e: Exception) {
-            result.error("ADD_NODE_TO_SCREEN_ERROR", e.message, null)
-        }
-    }
-
-    private fun handleInit(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
-        try {
-            val argShowAnimatedGuide = call.argument<Boolean>("showAnimatedGuide") ?: true
-            val argShowFeaturePoints = call.argument<Boolean>("showFeaturePoints") ?: false
-            val argPlaneDetectionConfig: Int? = call.argument<Int>("planeDetectionConfig")
-            val argShowPlanes = call.argument<Boolean>("showPlanes") ?: true
-            val customPlaneTexturePath = call.argument<String>("customPlaneTexturePath")
-            val showWorldOrigin = call.argument<Boolean>("showWorldOrigin") ?: false
-            val handleTaps = call.argument<Boolean>("handleTaps") ?: true
-            handlePans = call.argument<Boolean>("handlePans") ?: false
-            handleRotation = call.argument<Boolean>("handleRotation") ?: false
+            handlePans = config.handlePans
+            handleRotation = config.handleRotation
 
             sceneView.session?.let { session ->
                 session.configure(session.config.apply {
@@ -424,7 +300,7 @@ class ArView(
                         true -> Config.DepthMode.AUTOMATIC
                         else -> Config.DepthMode.DISABLED
                     }
-                    planeFindingMode = when (argPlaneDetectionConfig) {
+                    planeFindingMode = when (config.planeDetectionConfig.toInt()) {
                         1 -> Config.PlaneFindingMode.HORIZONTAL
                         2 -> Config.PlaneFindingMode.VERTICAL
                         3 -> Config.PlaneFindingMode.HORIZONTAL_AND_VERTICAL
@@ -433,24 +309,18 @@ class ArView(
                 })
             }
 
-            handleShowWorldOrigin(showWorldOrigin)
-            
+            handleShowWorldOrigin(config.showWorldOrigin)
+
             sceneView.apply {
                 environment = environmentLoader.createHDREnvironment(
                     assetFileLocation = "environments/evening_meadow_2k.hdr"
                 )!!
 
-                planeRenderer.isEnabled = argShowPlanes
-                planeRenderer.isVisible = argShowPlanes
+                planeRenderer.isEnabled = config.showPlanes
+                planeRenderer.isVisible = config.showPlanes
                 planeRenderer.planeRendererMode = PlaneRenderer.PlaneRendererMode.RENDER_ALL
 
-                onTrackingFailureChanged = { reason ->
-                    mainScope.launch {
-                        sessionChannel.invokeMethod("onTrackingFailure", reason?.name)
-                    }
-                }
-
-                if (argShowFeaturePoints == true) {
+                if (config.showFeaturePoints) {
                     showFeaturePoints = true
                 } else {
                     showFeaturePoints = false
@@ -482,8 +352,6 @@ class ArView(
 
                                                 val pointsSize = pointCloud.ids?.limit() ?: 0
 
-                                                if (pointCloudNodes.isNotEmpty()) {
-                                                }
                                                 pointCloudNodes.toList().forEach { removePointCloudNode(it) }
 
                                                 val pointsBuffer = pointCloud.points
@@ -511,7 +379,7 @@ class ArView(
                                     ) {
                                         detectedPlanes.add(plane)
                                         mainScope.launch {
-                                            sessionChannel.invokeMethod("onPlaneDetected", detectedPlanes.size)
+                                            sessionFlutterApi.onPlaneDetected(detectedPlanes.size.toLong())
                                         }
                                     }
                                 }
@@ -520,7 +388,6 @@ class ArView(
                     } catch (e: Exception) {
                         when (e) {
                             is SessionPausedException -> {
-                                // Ignorer silencieusement cette exception quand la session est en pause
                                 Log.d(TAG, "Session paused, skipping frame update")
                             }
                             else -> {
@@ -546,8 +413,8 @@ class ArView(
                                 if (anchorName != null) break
                                 currentNode = currentNode.parent
                             }
-                            if(handleTaps) {
-                                objectChannel.invokeMethod("onNodeTap", listOf(anchorName))
+                            if (config.handleTaps) {
+                                mainScope.launch { objectFlutterApi.onNodeTap(listOf(anchorName)) }
                             }
                             true
                         } else {
@@ -562,25 +429,22 @@ class ArView(
                                             val trackable = hit.trackable
                                             trackable is Plane && trackable.trackingState == TrackingState.TRACKING
                                         }.map { hit ->
-                                            mapOf(
-                                                "type" to 1,
-                                                "distance" to hit.distance.toDouble(),
-                                                "position" to
-                                                    mapOf(
-                                                        "x" to hit.hitPose.tx().toDouble(),
-                                                        "y" to hit.hitPose.ty().toDouble(),
-                                                        "z" to hit.hitPose.tz().toDouble(),
-                                                    ),
+                                            HitTestResultMessage(
+                                                type = 1L,
+                                                distance = hit.distance.toDouble(),
+                                                worldTransform = serializePose(hit.hitPose).toList(),
                                             )
                                         }
-                                notifyPlaneOrPointTap(planeHits)
+                                mainScope.launch {
+                                    sessionFlutterApi.onPlaneOrPointTap(planeHits)
+                                }
                             }
                             true
                         }
                     },
                 )
 
-                if (argShowAnimatedGuide == true && showAnimatedGuide == true) {
+                if (config.showAnimatedGuide && showAnimatedGuide) {
                     val handMotionLayout =
                         LayoutInflater
                             .from(context)
@@ -591,6 +455,7 @@ class ArView(
                     rootLayout.addView(handMotionLayout)
                 }
 
+                val customPlaneTexturePath = config.customPlaneTexturePath
                 if (customPlaneTexturePath != null) {
                     try {
                         val loader = FlutterInjector.instance().flutterLoader()
@@ -604,651 +469,370 @@ class ArView(
                             setTexture(PlaneRenderer.MATERIAL_TEXTURE, customPlaneTexture)
                         }
                     } catch (e: Exception) {
-                        Log.e(TAG, "❌ Erreur lors de l'application de la texture personnalisée: ${e.message}")
+                        Log.e(TAG, "Error applying custom plane texture: ${e.message}")
                         Log.e(TAG, "Stack trace:", e)
                     }
-                } else {
-                    Log.i(TAG, "ℹ️ Utilisation de la texture par défaut")
-                }
-            }
-            result.success(null)
-        } catch (e: Exception) {
-            result.error("AR_VIEW_ERROR", e.message, null)
-        }
-    }
-
-    private fun handleAddNode(
-        nodeData: Map<String, Any>,
-        result: MethodChannel.Result,
-    ) {
-        try {
-            mainScope.launch {
-                val node = buildModelNode(nodeData)
-                if (node != null) {
-                    sceneView.addChildNode(node)
-                    node.name?.let { nodeName ->
-                        nodesMap[nodeName] = node
-                    }
-                    result.success(true)
-                } else {
-                    result.success(false)
                 }
             }
         } catch (e: Exception) {
-            result.success(false)
+            throw FlutterError("AR_VIEW_ERROR", e.message, null)
         }
     }
 
-    private fun handleRemoveNode(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
-        try {
-            val nodeData = call.arguments as? Map<String, Any>
-            val nodeName = nodeData?.get("name") as? String
-            
-            if (nodeName == null) {
-                result.error("INVALID_ARGUMENT", "Node name is required", null)
-                return
-            }
-            
-            Log.d(TAG, "Attempting to remove node with name: $nodeName")
-            Log.d(TAG, "Current nodes in map: ${nodesMap.keys}")
-            
-            nodesMap[nodeName]?.let { node ->
-                // Détacher d'abord le nœud de son parent s'il en a un
-                node.parent?.removeChildNode(node)
-                // Puis le retirer de la scène principale
-                sceneView.removeChildNode(node)
-                // Nettoyer les ressources du nœud
-                node.destroy()
-                // ModelLoader.loadModelInstance creates a brand new FilamentAsset on every
-                // call (confirmed by decompiling ModelLoader.createModel: it always calls
-                // assetLoader.createAsset(buffer), never a cache lookup by path) - so this
-                // asset is never shared with another node, and destroying it here is safe.
-                // node.destroy() alone only releases the root entity's transform, not the
-                // underlying mesh/texture buffers, which otherwise leak on every removal.
-                sceneView.modelLoader.destroyModel(node.model)
-                // Enfin le retirer de notre Map
-                nodesMap.remove(nodeName)
-                
-                Log.d(TAG, "Node removed successfully and destroyed")
-                result.success(nodeName)
-            } ?: run {
-                Log.e(TAG, "Node not found in nodesMap")
-                result.error("NODE_NOT_FOUND", "Node with name $nodeName not found", null)
-            }
+    override suspend fun initialize() {
+        // ARObjectHostApi.initialize() has nothing to set up: node bookkeeping is
+        // lazily initialized and shared with the session's sceneView.
+    }
+
+    override suspend fun addNode(node: NodeMessage): Boolean {
+        return try {
+            val builtNode = buildModelNode(node) ?: return false
+            sceneView.addChildNode(builtNode)
+            builtNode.name?.let { nodesMap[it] = builtNode }
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "Error removing node", e)
-            result.error("REMOVE_NODE_ERROR", e.message, null)
+            false
         }
     }
 
-    private fun handleTransformNode(
-    call: MethodCall,
-    result: MethodChannel.Result,
-) {
-    try {
-        if (handlePans || handleRotation) {
-            val name = call.argument<String>("name")
-            val newTransformation: ArrayList<Double>? = call.argument<ArrayList<Double>>("transformation")
+    override suspend fun removeNode(name: String) {
+        val node = nodesMap[name]
+            ?: throw FlutterError("NODE_NOT_FOUND", "Node with name $name not found", null)
+        try {
+            node.parent?.removeChildNode(node)
+            sceneView.removeChildNode(node)
+            node.destroy()
+            // ModelLoader.loadModelInstance creates a brand new FilamentAsset on every
+            // call (confirmed by decompiling ModelLoader.createModel: it always calls
+            // assetLoader.createAsset(buffer), never a cache lookup by path) - so this
+            // asset is never shared with another node, and destroying it here is safe.
+            // node.destroy() alone only releases the root entity's transform, not the
+            // underlying mesh/texture buffers, which otherwise leak on every removal.
+            sceneView.modelLoader.destroyModel(node.model)
+            nodesMap.remove(name)
+        } catch (e: Exception) {
+            throw FlutterError("REMOVE_NODE_ERROR", e.message, null)
+        }
+    }
 
-            if (name == null) {
-                result.error("INVALID_ARGUMENT", "Node name is required", null)
-                return
+    override suspend fun transformationChanged(name: String, transformation: List<Double>) {
+        if (!handlePans && !handleRotation) return
+        try {
+            if (transformation.size != 16) {
+                throw FlutterError("INVALID_TRANSFORMATION", "Transformation must be a 4x4 matrix (16 values)", null)
             }
-            nodesMap[name]?.let { node ->
-                newTransformation?.let { transform ->
-                    if (transform.size != 16) {
-                        result.error("INVALID_TRANSFORMATION", "Transformation must be a 4x4 matrix (16 values)", null)
-                        return
-                    }
+            val node = nodesMap[name]
+                ?: throw FlutterError("NODE_NOT_FOUND", "Node with name $name not found", null)
 
-                    node.apply {
-                        transform(
-                            position = ScenePosition(
-                                x = transform[12].toFloat(),
-                                y = transform[13].toFloat(),
-                                z = transform[14].toFloat()
+            node.apply {
+                transform(
+                    position = ScenePosition(
+                        x = transformation[12].toFloat(),
+                        y = transformation[13].toFloat(),
+                        z = transformation[14].toFloat(),
+                    ),
+                    rotation = SceneRotation(
+                        x = kotlin.math.atan2(transformation[6].toFloat(), transformation[10].toFloat()),
+                        y = kotlin.math.atan2(
+                            -transformation[2].toFloat(),
+                            kotlin.math.sqrt(
+                                transformation[6].toFloat() * transformation[6].toFloat() +
+                                    transformation[10].toFloat() * transformation[10].toFloat(),
                             ),
-                            rotation = SceneRotation(
-                                x = kotlin.math.atan2(transform[6].toFloat(), transform[10].toFloat()),
-                                y = kotlin.math.atan2(-transform[2].toFloat(), 
-                                    kotlin.math.sqrt(transform[6].toFloat() * transform[6].toFloat() + 
-                                    transform[10].toFloat() * transform[10].toFloat())),
-                                z = kotlin.math.atan2(transform[1].toFloat(), transform[0].toFloat())
-                            ),
-                            scale = SceneScale(
-                                x = kotlin.math.sqrt((transform[0] * transform[0] + transform[1] * transform[1] + transform[2] * transform[2]).toFloat()),
-                                y = kotlin.math.sqrt((transform[4] * transform[4] + transform[5] * transform[5] + transform[6] * transform[6]).toFloat()),
-                                z = kotlin.math.sqrt((transform[8] * transform[8] + transform[9] * transform[9] + transform[10] * transform[10]).toFloat())
-                            )
-                        )
-                    }
-                    result.success(null)
-                } ?: result.error("INVALID_TRANSFORMATION", "Transformation is required", null)
-            } ?: result.error("NODE_NOT_FOUND", "Node with name $name not found", null)
-        }
-    } catch (e: Exception) {
-        result.error("TRANSFORM_NODE_ERROR", e.message, null)
-    }
-}
-
-    private fun handleHostCloudAnchor(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
-        try {
-            val anchorId = call.argument<String>("anchorId")
-            if (anchorId == null) {
-                result.error("INVALID_ARGUMENT", "Anchor ID is required", null)
-                return
+                        ),
+                        z = kotlin.math.atan2(transformation[1].toFloat(), transformation[0].toFloat()),
+                    ),
+                    scale = SceneScale(
+                        x = kotlin.math.sqrt(
+                            (
+                                transformation[0] * transformation[0] + transformation[1] * transformation[1] +
+                                    transformation[2] * transformation[2]
+                                ).toFloat(),
+                        ),
+                        y = kotlin.math.sqrt(
+                            (
+                                transformation[4] * transformation[4] + transformation[5] * transformation[5] +
+                                    transformation[6] * transformation[6]
+                                ).toFloat(),
+                        ),
+                        z = kotlin.math.sqrt(
+                            (
+                                transformation[8] * transformation[8] + transformation[9] * transformation[9] +
+                                    transformation[10] * transformation[10]
+                                ).toFloat(),
+                        ),
+                    ),
+                )
             }
-
-            val session = sceneView.session
-            if (session == null) {
-                result.error("SESSION_ERROR", "AR Session is not available", null)
-                return
-            }
-
-            if (!session.canHostCloudAnchor(sceneView.cameraNode)) {
-                result.error("HOSTING_ERROR", "Insufficient visual data to host", null)
-                return
-            }
-
-            val anchor = session.allAnchors.find { it.cloudAnchorId == anchorId }
-            if (anchor == null) {
-                result.error("ANCHOR_NOT_FOUND", "Anchor with ID $anchorId not found", null)
-                return
-            }
-
-            val cloudAnchorNode = CloudAnchorNode(sceneView.engine, anchor)
-            cloudAnchorNode.host(session) { cloudAnchorId, state ->
-                if (state == CloudAnchorState.SUCCESS && cloudAnchorId != null) {
-                    result.success(cloudAnchorId)
-                } else {
-                    result.error("HOSTING_ERROR", "Failed to host cloud anchor: $state", null)
-                }
-            }
-            sceneView.addChildNode(cloudAnchorNode)
+        } catch (e: FlutterError) {
+            throw e
         } catch (e: Exception) {
-            result.error("HOST_CLOUD_ANCHOR_ERROR", e.message, null)
+            throw FlutterError("TRANSFORM_NODE_ERROR", e.message, null)
         }
     }
 
-    private fun handleResolveCloudAnchor(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    override suspend fun removeAnchor(name: String) {
         try {
-            val cloudAnchorId = call.argument<String>("cloudAnchorId")
-            if (cloudAnchorId == null) {
-                result.error("INVALID_ARGUMENT", "Cloud Anchor ID is required", null)
-                return
-            }
-
-            val session = sceneView.session
-            if (session == null) {
-                result.error("SESSION_ERROR", "AR Session is not available", null)
-                return
-            }
-
-            CloudAnchorNode.resolve(
-                sceneView.engine,
-                session,
-                cloudAnchorId,
-            ) { state, node ->
-                if (!state.isError && node != null) {
-                    sceneView.addChildNode(node)
-                    result.success(null)
-                } else {
-                    result.error("RESOLVE_ERROR", "Failed to resolve cloud anchor: $state", null)
-                }
-            }
+            val anchor = anchorNodesMap[name]
+                ?: throw FlutterError("ANCHOR_NOT_FOUND", "Anchor with name $name not found", null)
+            sceneView.removeChildNode(anchor)
+            anchor.anchor?.detach()
+            anchor.destroy()
+            anchorNodesMap.remove(name)
+        } catch (e: FlutterError) {
+            throw e
         } catch (e: Exception) {
-            result.error("RESOLVE_CLOUD_ANCHOR_ERROR", e.message, null)
+            throw FlutterError("REMOVE_ANCHOR_ERROR", e.message, null)
         }
     }
 
-    private fun handleRemoveAnchor(
-        anchorName: String?,
-        result: MethodChannel.Result,
-    ) {
-        try {
-            if (anchorName == null) {
-                result.error("INVALID_ARGUMENT", "Anchor name is required", null)
-                return
-            }
-
-            val anchor = anchorNodesMap[anchorName]
-            if (anchor != null) {
-                sceneView.removeChildNode(anchor)
-                anchor.anchor?.detach()
-                anchor.destroy()
-                anchorNodesMap.remove(anchorName)
-                result.success(null)
-            } else {
-                result.error("ANCHOR_NOT_FOUND", "Anchor with name $anchorName not found", null)
-            }
-        } catch (e: Exception) {
-            result.error("REMOVE_ANCHOR_ERROR", e.message, null)
-        }
-    }
-
-    private fun handleGetCameraPose(result: MethodChannel.Result) {
+    private suspend fun getCameraPoseImpl(): PoseMessage {
         try {
             val frame = sceneView.session?.update()
             val cameraPose = frame?.camera?.pose
-            if (cameraPose != null) {
-                val poseData =
-                    mapOf(
-                        "position" to
-                            mapOf(
-                                "x" to cameraPose.tx(),
-                                "y" to cameraPose.ty(),
-                                "z" to cameraPose.tz(),
-                            ),
-                        "rotation" to
-                            mapOf(
-                                "x" to cameraPose.rotationQuaternion[0],
-                                "y" to cameraPose.rotationQuaternion[1],
-                                "z" to cameraPose.rotationQuaternion[2],
-                                "w" to cameraPose.rotationQuaternion[3],
-                            ),
-                    )
-                result.success(poseData)
-            } else {
-                result.error("NO_CAMERA_POSE", "Camera pose is not available", null)
-            }
+                ?: throw FlutterError("NO_CAMERA_POSE", "Camera pose is not available", null)
+            return PoseMessage(matrix = serializePose(cameraPose).toList())
+        } catch (e: FlutterError) {
+            throw e
         } catch (e: Exception) {
-            result.error("CAMERA_POSE_ERROR", e.message, null)
+            throw FlutterError("CAMERA_POSE_ERROR", e.message, null)
         }
     }
 
-    private fun handleGetAnchorPose(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    private suspend fun getAnchorPoseImpl(anchorId: String): PoseMessage {
         try {
-            val anchorId = call.argument<String>("anchorId")
-            if (anchorId == null) {
-                result.error("INVALID_ARGUMENT", "Anchor ID is required", null)
-                return
-            }
-
-            val anchor = sceneView.session?.allAnchors?.find { it.cloudAnchorId == anchorId }
-            if (anchor != null) {
-                val anchorPose = anchor.pose
-                val poseData =
-                    mapOf(
-                        "position" to
-                            mapOf(
-                                "x" to anchorPose.tx(),
-                                "y" to anchorPose.ty(),
-                                "z" to anchorPose.tz(),
-                            ),
-                        "rotation" to
-                            mapOf(
-                                "x" to anchorPose.rotationQuaternion[0],
-                                "y" to anchorPose.rotationQuaternion[1],
-                                "z" to anchorPose.rotationQuaternion[2],
-                                "w" to anchorPose.rotationQuaternion[3],
-                            ),
-                    )
-                result.success(poseData)
-            } else {
-                result.error("ANCHOR_NOT_FOUND", "Anchor with ID $anchorId not found", null)
-            }
+            // Look up by the anchor's local name (matches what Dart always sends),
+            // not its cloud anchor id - most anchors are never uploaded and have none.
+            val anchorNode = anchorNodesMap[anchorId]
+                ?: throw FlutterError("ANCHOR_NOT_FOUND", "Anchor with ID $anchorId not found", null)
+            val anchorPose = anchorNode.anchor?.pose
+                ?: throw FlutterError("ANCHOR_NOT_FOUND", "Anchor with ID $anchorId not found", null)
+            return PoseMessage(matrix = serializePose(anchorPose).toList())
+        } catch (e: FlutterError) {
+            throw e
         } catch (e: Exception) {
-            result.error("ANCHOR_POSE_ERROR", e.message, null)
+            throw FlutterError("ANCHOR_POSE_ERROR", e.message, null)
         }
     }
 
-    private fun handleSnapshot(result: MethodChannel.Result) {
-        try {
-            mainScope.launch {
-                val bitmap =
-                    withContext(Dispatchers.Main) {
-                        val bitmap =
-                            Bitmap.createBitmap(
-                                sceneView.width,
-                                sceneView.height,
-                                Bitmap.Config.ARGB_8888,
-                            )
-
-                        try {
-                            val listener =
-                                PixelCopy.OnPixelCopyFinishedListener { copyResult ->
-                                    if (copyResult == PixelCopy.SUCCESS) {
-                                        val byteStream = java.io.ByteArrayOutputStream()
-                                        bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
-                                        val byteArray = byteStream.toByteArray()
-                                        result.success(byteArray)
-                                    } else {
-                                        result.error("SNAPSHOT_ERROR", "Failed to capture snapshot", null)
-                                    }
-                                }
-
-                            PixelCopy.request(
-                                sceneView,
-                                bitmap,
-                                listener,
-                                Handler(Looper.getMainLooper()),
-                            )
-                        } catch (e: Exception) {
-                            result.error("SNAPSHOT_ERROR", e.message, null)
+    private suspend fun snapshotImpl(): ByteArray {
+        return try {
+            suspendCancellableCoroutine { continuation ->
+                val bitmap = Bitmap.createBitmap(
+                    sceneView.width,
+                    sceneView.height,
+                    Bitmap.Config.ARGB_8888,
+                )
+                try {
+                    val listener =
+                        PixelCopy.OnPixelCopyFinishedListener { copyResult ->
+                            if (copyResult == PixelCopy.SUCCESS) {
+                                val byteStream = java.io.ByteArrayOutputStream()
+                                bitmap.compress(Bitmap.CompressFormat.PNG, 100, byteStream)
+                                continuation.resume(byteStream.toByteArray())
+                            } else {
+                                continuation.resumeWithException(
+                                    FlutterError("SNAPSHOT_ERROR", "Failed to capture snapshot", null),
+                                )
+                            }
                         }
-                    }
+                    PixelCopy.request(
+                        sceneView,
+                        bitmap,
+                        listener,
+                        Handler(Looper.getMainLooper()),
+                    )
+                } catch (e: Exception) {
+                    continuation.resumeWithException(FlutterError("SNAPSHOT_ERROR", e.message, null))
+                }
             }
+        } catch (e: FlutterError) {
+            throw e
         } catch (e: Exception) {
-            result.error("SNAPSHOT_ERROR", e.message, null)
+            throw FlutterError("SNAPSHOT_ERROR", e.message, null)
         }
     }
 
-    private fun handleShowPlanes(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
+    private suspend fun showPlanesImpl(showPlanes: Boolean) {
         try {
-            val showPlanes = call.argument<Boolean>("showPlanes") ?: false
             sceneView.apply {
                 planeRenderer.isEnabled = showPlanes
             }
-            result.success(null)
         } catch (e: Exception) {
-            result.error("SHOW_PLANES_ERROR", e.message, null)
+            throw FlutterError("SHOW_PLANES_ERROR", e.message, null)
         }
     }
 
-    private fun handleAddAnchor(
-        call: MethodCall,
-        result: MethodChannel.Result,
-    ) {
-        try {
-            val anchorType = call.argument<Int>("type")
-            if (anchorType == 0) { // Plane Anchor
-                val transform = call.argument<ArrayList<Double>>("transformation")
-                val name = call.argument<String>("name")
+    override suspend fun addAnchor(anchor: AnchorMessage): Boolean {
+        if (anchor.type.toInt() != 0) return false // only plane anchors are supported
+        return try {
+            val transform = ArrayList(anchor.transformation)
+            val (position, rotation) = deserializeMatrix4(transform)
 
-                if (name != null && transform != null) {
-                    try {
-                        // Décomposer la matrice de transformation
-                        val (position, rotation) = deserializeMatrix4(transform)
+            val pose = Pose(
+                floatArrayOf(position.x, position.y, position.z),
+                floatArrayOf(rotation.x, rotation.y, rotation.z, 1f),
+            )
 
-                        val pose =
-                            Pose(
-                                floatArrayOf(position.x, position.y, position.z),
-                                floatArrayOf(rotation.x, rotation.y, rotation.z, 1f),
-                            )
-
-                        val anchor = sceneView.session?.createAnchor(pose)
-                        if (anchor != null) {
-                            val anchorNode = AnchorNode(sceneView.engine, anchor)
-                            try {
-                                anchorNode.transform =
-                                    Transform(
-                                        position = position,
-                                        rotation = rotation,
-                                    )
-                            } catch (e: Exception) {
-                                Log.w(TAG, "Transform warning suppressed: ${e.message}")
-                            }
-
-                            sceneView.addChildNode(anchorNode)
-                            anchorNodesMap[name] = anchorNode
-                            result.success(true)
-                        } else {
-                            result.success(false)
-                        }
-                    } catch (e: Exception) {
-                        Log.e(TAG, "Error in transform calculation: ${e.message}")
-                        result.success(false)
-                    }
-                } else {
-                    result.success(false)
-                }
-            } else {
-                result.success(false)
+            val arAnchor = sceneView.session?.createAnchor(pose) ?: return false
+            val anchorNode = AnchorNode(sceneView.engine, arAnchor)
+            try {
+                anchorNode.transform = Transform(position = position, rotation = rotation)
+            } catch (e: Exception) {
+                Log.w(TAG, "Transform warning suppressed: ${e.message}")
             }
+
+            sceneView.addChildNode(anchorNode)
+            anchorNodesMap[anchor.name] = anchorNode
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "Error in handleAddAnchor: ${e.message}")
-            e.printStackTrace()
-            result.success(false)
+            Log.e(TAG, "Error in addAnchor: ${e.message}")
+            false
         }
     }
 
-    private fun handleInitGoogleCloudAnchorMode(result: MethodChannel.Result) {
-        try {
-            Log.d(TAG, "🔄 Initialisation du mode Cloud Anchor...")
+    override suspend fun initGoogleCloudAnchorMode(): Boolean {
+        return try {
+            Log.d(TAG, "Initializing Cloud Anchor mode")
             sceneView.session?.let { session ->
                 session.configure(session.config.apply {
                     cloudAnchorMode = Config.CloudAnchorMode.ENABLED
                 })
             }
-            result.success(null)
+            true
         } catch (e: Exception) {
-            Log.e(TAG, "❌ Erreur lors de l'initialisation du mode Cloud Anchor", e)
+            Log.e(TAG, "Error initializing Cloud Anchor mode", e)
             mainScope.launch {
-                sessionChannel.invokeMethod("onError", listOf("Error initializing cloud anchor mode: ${e.message}"))
+                sessionFlutterApi.onError("Error initializing cloud anchor mode: ${e.message}")
             }
-            result.error("CLOUD_ANCHOR_INIT_ERROR", e.message, null)
+            throw FlutterError("CLOUD_ANCHOR_INIT_ERROR", e.message, null)
         }
     }
 
-    private fun handleUploadAnchor(call: MethodCall, result: MethodChannel.Result) {
+    override suspend fun uploadAnchor(name: String): Boolean {
+        val session = sceneView.session
+            ?: throw FlutterError("SESSION_ERROR", "AR Session is not available", null)
+
         try {
-            val anchorName = call.argument<String>("name")
-            Log.d(TAG, "⚓ Début de l'upload de l'ancre: $anchorName")
-            
-            // Vérifier si le mode Cloud Anchor est initialisé
-            val session = sceneView.session
-            if (session == null) {
-                Log.e(TAG, "❌ Erreur: session AR non disponible")
-                result.error("SESSION_ERROR", "AR Session is not available", null)
-                return
+            sceneView.configureSession { _, config ->
+                config.cloudAnchorMode = Config.CloudAnchorMode.ENABLED
+                config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
             }
+        } catch (e: Exception) {
+            throw FlutterError("CLOUD_ANCHOR_CONFIG_ERROR", e.message, null)
+        }
 
-            // Vérifier et initialiser le mode Cloud Anchor si nécessaire
-            Log.d(TAG, "🔄 Vérification de la configuration Cloud Anchor...")
-            try {
-                sceneView.configureSession { session, config ->
-                    config.cloudAnchorMode = Config.CloudAnchorMode.ENABLED
-                    config.updateMode = Config.UpdateMode.LATEST_CAMERA_IMAGE
-                }
-                Log.d(TAG, "✅ Mode Cloud Anchor configuré avec succès")
-            } catch (e: Exception) {
-                Log.e(TAG, "❌ Erreur lors de la configuration du mode Cloud Anchor", e)
-                result.error("CLOUD_ANCHOR_CONFIG_ERROR", e.message, null)
-                return
-            }
+        if (!session.canHostCloudAnchor(sceneView.cameraNode)) {
+            throw FlutterError("HOSTING_ERROR", "Insufficient visual data to host", null)
+        }
 
-            // Continuer avec le reste du code existant...
-            if (anchorName == null) {
-                Log.e(TAG, "❌ Erreur: nom de l'ancre manquant")
-                result.error("INVALID_ARGUMENT", "Anchor name is required", null)
-                return
-            }
+        val anchorNode = anchorNodesMap[name]
+            ?: throw FlutterError("ANCHOR_NOT_FOUND", "Anchor not found: $name", null)
 
-            Log.d(TAG, "📱 Vérification de la capacité à héberger l'ancre cloud...")
-            if (!session.canHostCloudAnchor(sceneView.cameraNode)) {
-                Log.e(TAG, "❌ Erreur: données visuelles insuffisantes pour héberger l'ancre cloud")
-                result.error("HOSTING_ERROR", "Insufficient visual data to host", null)
-                return
-            }
-
-            val anchorNode = anchorNodesMap[anchorName]
-            if (anchorNode == null) {
-                Log.e(TAG, "❌ Erreur: ancre non trouvée: $anchorName")
-                Log.d(TAG, "📍 Ancres disponibles: ${anchorNodesMap.keys}")
-                result.error("ANCHOR_NOT_FOUND", "Anchor not found: $anchorName", null)
-                return
-            }
-
-            Log.d(TAG, "🔄 Création du CloudAnchorNode...")
-            val cloudAnchorNode = CloudAnchorNode(sceneView.engine, anchorNode.anchor!!)
-            
-            Log.d(TAG, "☁️ Début de l'hébergement de l'ancre cloud...")
-            cloudAnchorNode.host(session) { cloudAnchorId, state ->
-                Log.d(TAG, "📡 État de l'hébergement: $state, ID: $cloudAnchorId")
-                mainScope.launch {
-                    if (state == CloudAnchorState.SUCCESS && cloudAnchorId != null) {
-                        Log.d(TAG, "✅ Ancre cloud hébergée avec succès: $cloudAnchorId")
-                        val args = mapOf(
-                            "name" to anchorName,
-                            "cloudanchorid" to cloudAnchorId
-                        )
-                        anchorChannel.invokeMethod("onCloudAnchorUploaded", args)
-                        result.success(true)
-                    } else {
-                        Log.e(TAG, "❌ Échec de l'hébergement de l'ancre cloud: $state")
-                        sessionChannel.invokeMethod("onError", listOf("Failed to host cloud anchor: $state"))
-                        result.error("HOSTING_ERROR", "Failed to host cloud anchor: $state", null)
-                    }
+        val cloudAnchorNode = CloudAnchorNode(sceneView.engine, anchorNode.anchor!!)
+        val cloudAnchorId = suspendCancellableCoroutine<String?> { continuation ->
+            cloudAnchorNode.host(session) { id, state ->
+                if (state == CloudAnchorState.SUCCESS && id != null) {
+                    continuation.resume(id)
+                } else {
+                    Log.e(TAG, "Failed to host cloud anchor: $state")
+                    mainScope.launch { sessionFlutterApi.onError("Failed to host cloud anchor: $state") }
+                    continuation.resume(null)
                 }
             }
-            
-            Log.d(TAG, "➕ Ajout du CloudAnchorNode à la scène...")
             sceneView.addChildNode(cloudAnchorNode)
-            
-        } catch (e: Exception) {
-            Log.e(TAG, "❌ Exception lors de l'upload de l'ancre", e)
-            Log.e(TAG, "Stack trace:", e)
-            result.error("UPLOAD_ANCHOR_ERROR", e.message, null)
         }
+
+        if (cloudAnchorId == null) {
+            throw FlutterError("HOSTING_ERROR", "Failed to host cloud anchor", null)
+        }
+
+        mainScope.launch {
+            anchorFlutterApi.onCloudAnchorUploaded(
+                CloudAnchorUploadedMessage(name = name, cloudAnchorId = cloudAnchorId),
+            )
+        }
+        return true
     }
 
-    private fun handleDownloadAnchor(call: MethodCall, result: MethodChannel.Result) {
-        try {
-            val cloudAnchorId = call.argument<String>("cloudanchorid")
-            if (cloudAnchorId == null) {
-                mainScope.launch {
-                    sessionChannel.invokeMethod("onError", listOf("Cloud Anchor ID is required"))
-                }
-                result.error("INVALID_ARGUMENT", "Cloud Anchor ID is required", null)
-                return
-            }
+    override suspend fun downloadAnchor(cloudAnchorId: String): Boolean {
+        val session = sceneView.session ?: run {
+            mainScope.launch { sessionFlutterApi.onError("AR Session is not available") }
+            throw FlutterError("SESSION_ERROR", "AR Session is not available", null)
+        }
 
-            val session = sceneView.session
-            if (session == null) {
-                mainScope.launch {
-                    sessionChannel.invokeMethod("onError", listOf("AR Session is not available"))
-                }
-                result.error("SESSION_ERROR", "AR Session is not available", null)
-                return
-            }
-
-            CloudAnchorNode.resolve(
-                sceneView.engine,
-                session,
-                cloudAnchorId
-            ) { state, node ->
-                mainScope.launch {
-                    if (!state.isError && node != null) {
-                        sceneView.addChildNode(node)
-                        val anchorData = mapOf(
-                            "type" to 0,
-                            "cloudanchorid" to cloudAnchorId
-                        )
-                        anchorChannel.invokeMethod(
-                            "onAnchorDownloadSuccess",
-                            anchorData,
-                            object : MethodChannel.Result {
-                                override fun success(result: Any?) {
-                                    val anchorName = result.toString()
-                                    anchorNodesMap[anchorName] = node
-                                }
-
-                                override fun error(errorCode: String, errorMessage: String?, errorDetails: Any?) {
-                                    sessionChannel.invokeMethod("onError", listOf("Error registering downloaded anchor: $errorMessage"))
-                                }
-
-                                override fun notImplemented() {
-                                    sessionChannel.invokeMethod("onError", listOf("Error registering downloaded anchor: not implemented"))
-                                }
-                            }
-                        )
-                        result.success(true)
-                    } else {
-                        sessionChannel.invokeMethod("onError", listOf("Failed to resolve cloud anchor: $state"))
-                        result.error("RESOLVE_ERROR", "Failed to resolve cloud anchor: $state", null)
-                    }
+        val resolvedNode = suspendCancellableCoroutine<AnchorNode?> { continuation ->
+            CloudAnchorNode.resolve(sceneView.engine, session, cloudAnchorId) { state, node ->
+                if (!state.isError && node != null) {
+                    continuation.resume(node)
+                } else {
+                    mainScope.launch { sessionFlutterApi.onError("Failed to resolve cloud anchor: $state") }
+                    continuation.resume(null)
                 }
             }
+        }
+
+        val node = resolvedNode
+            ?: throw FlutterError("RESOLVE_ERROR", "Failed to resolve cloud anchor", null)
+        sceneView.addChildNode(node)
+
+        val anchorPose = node.anchor?.pose
+        val anchorData = AnchorMessage(
+            type = 0,
+            // Native doesn't know the eventual Dart-assigned name yet; the cloud anchor
+            // id is the best identifier available until Dart's onAnchorDownloadSuccess
+            // response comes back.
+            name = cloudAnchorId,
+            transformation = anchorPose?.let { serializePose(it).toList() } ?: List(16) { 0.0 },
+            cloudAnchorId = cloudAnchorId,
+        )
+
+        val anchorName = try {
+            anchorFlutterApi.onAnchorDownloadSuccess(anchorData)
         } catch (e: Exception) {
             mainScope.launch {
-                sessionChannel.invokeMethod("onError", listOf("Error downloading anchor: ${e.message}"))
+                sessionFlutterApi.onError("Error registering downloaded anchor: ${e.message}")
             }
-            result.error("DOWNLOAD_ANCHOR_ERROR", e.message, null)
+            throw FlutterError("DOWNLOAD_ANCHOR_ERROR", e.message, null)
         }
+
+        anchorNodesMap[anchorName] = node
+        return true
     }
 
     override fun getView(): View = rootLayout
 
     override fun dispose() {
+        teardown()
+    }
+
+    private fun teardown() {
         Log.i(TAG, "dispose: viewId=$viewId lifecycleState=${lifecycle.currentState}")
-        sessionChannel.setMethodCallHandler(null)
-        objectChannel.setMethodCallHandler(null)
-        anchorChannel.setMethodCallHandler(null)
+        ARSessionHostApi.setUp(messenger, null, channelSuffix)
+        ARObjectHostApi.setUp(messenger, null, channelSuffix)
+        ARAnchorHostApi.setUp(messenger, null, channelSuffix)
         nodesMap.clear()
         sceneView.destroy()
         pointCloudNodes.toList().forEach { removePointCloudNode(it) }
         pointCloudModelInstances.clear()
     }
 
-    private fun notifyError(error: String) {
-        mainScope.launch {
-            sessionChannel.invokeMethod("onError", listOf(error))
-        }
-    }
-
-    private fun notifyCloudAnchorUploaded(args: Map<String, Any>) {
-        mainScope.launch {
-            anchorChannel.invokeMethod("onCloudAnchorUploaded", args)
-        }
-    }
-
-    private fun notifyAnchorDownloadSuccess(
-        anchorData: Map<String, Any>,
-        result: MethodChannel.Result,
-    ) {
-        mainScope.launch {
-            anchorChannel.invokeMethod(
-                "onAnchorDownloadSuccess",
-                anchorData,
-                object : MethodChannel.Result {
-                    override fun success(result: Any?) {
-                        val anchorName = result.toString()
-                        // Mettre à jour l'ancre avec le nom reçu
-                    }
-
-                    override fun error(
-                        errorCode: String,
-                        errorMessage: String?,
-                        errorDetails: Any?,
-                    ) {
-                        notifyError("Error while registering downloaded anchor: $errorMessage")
-                    }
-
-                    override fun notImplemented() {
-                        notifyError("Error while registering downloaded anchor")
-                    }
-                },
-            )
-        }
-    }
-
-    private fun notifyPlaneOrPointTap(hitResults: List<Map<String, Any>>) {
-        mainScope.launch {
-            try {
-                val serializedResults = ArrayList<HashMap<String, Any>>()
-                hitResults.forEach { hit ->
-                    serializedResults.add(serializeHitResult(hit))
-                }
-                sessionChannel.invokeMethod("onPlaneOrPointTap", serializedResults)
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
-        }
+    /**
+     * Implements [ARSessionHostApi] as a separate class rather than directly on
+     * [ArView]: `ARSessionHostApi.dispose()` and [PlatformView.dispose] share the
+     * same name but are unrelated contracts (one Dart-triggered, one
+     * Flutter-framework-triggered), and Kotlin rejects a class that inherits two
+     * conflicting `dispose()` members from different supertypes.
+     */
+    private inner class SessionApiHandler : ARSessionHostApi {
+        override suspend fun initialize(config: SessionConfigMessage) = initSession(config)
+        override suspend fun showPlanes(showPlanes: Boolean) = showPlanesImpl(showPlanes)
+        override suspend fun dispose() = teardown()
+        override suspend fun getAnchorPose(anchorId: String): PoseMessage = getAnchorPoseImpl(anchorId)
+        override suspend fun getCameraPose(): PoseMessage = getCameraPoseImpl()
+        override suspend fun snapshot(): ByteArray = snapshotImpl()
+        override suspend fun disableCamera() = disableCameraImpl()
+        override suspend fun enableCamera() = enableCameraImpl()
     }
 
     private fun getPointCloudModelInstance(): ModelInstance? {
@@ -1268,7 +852,7 @@ class ArView(
         position: Position,
         confidence: Float,
     ) {
-        if (pointCloudNodes.size < 1000) { // Limite max de points
+        if (pointCloudNodes.size < 1000) { // Max point limit
             getPointCloudModelInstance()?.let { modelInstance ->
                 val pointCloudNode =
                     PointCloudNode(
@@ -1293,15 +877,12 @@ class ArView(
     private fun makeWorldOriginNode(context: Context): Node {
         val axisSize = 0.1f
         val axisRadius = 0.005f
-        
-        // Utilisation de l'engine de sceneView
+
         val engine = sceneView.engine
         val materialLoader = MaterialLoader(engine, context)
-        
-        // Création du noeud racine
+
         val rootNode = Node(engine = engine)
-        
-        // Création des cylindres avec leurs matériaux respectifs
+
         val xNode = CylinderNode(
             engine = engine,
             radius = axisRadius,
@@ -1312,7 +893,7 @@ class ArView(
                 roughness = 0.4f
             )
         )
-        
+
         val yNode = CylinderNode(
             engine = engine,
             radius = axisRadius,
@@ -1323,7 +904,7 @@ class ArView(
                 roughness = 0.4f
             )
         )
-        
+
         val zNode = CylinderNode(
             engine = engine,
             radius = axisRadius,
@@ -1339,38 +920,30 @@ class ArView(
         rootNode.addChildNode(yNode)
         rootNode.addChildNode(zNode)
 
-        // Positionnement des axes
         xNode.position = Position(axisSize / 2, 0f, 0f)
-        xNode.rotation = Rotation(0f, 0f, 90f)  // Rotation autour de l'axe Z
+        xNode.rotation = Rotation(0f, 0f, 90f)
 
         yNode.position = Position(0f, axisSize / 2, 0f)
-        // Pas besoin de rotation pour l'axe Y car il est déjà orienté correctement
 
         zNode.position = Position(0f, 0f, axisSize / 2)
-        zNode.rotation = Rotation(90f, 0f, 0f)  // Rotation autour de l'axe X
+        zNode.rotation = Rotation(90f, 0f, 0f)
 
         return rootNode
     }
 
     private fun handleShowWorldOrigin(show: Boolean) {
         if (show) {
-            // Création du nouveau node seulement si nécessaire
             if (worldOriginNode == null) {
                 worldOriginNode = makeWorldOriginNode(viewContext)
             }
-            // Utilisation du safe call operator
             worldOriginNode?.let { node ->
                 sceneView.addChildNode(node)
             }
         } else {
-            // Utilisation du safe call operator
             worldOriginNode?.let { node ->
                 sceneView.removeChildNode(node)
             }
-            // Optionnel : remettre à null après suppression
             worldOriginNode = null
         }
     }
-
-    
 }

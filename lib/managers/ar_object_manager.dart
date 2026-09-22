@@ -1,7 +1,9 @@
 import 'package:flutter_reality/models/ar_anchor.dart';
 import 'package:flutter_reality/models/ar_node.dart';
+import 'package:flutter_reality/src/generated/messages.g.dart';
 import 'package:flutter_reality/utils/json_converters.dart';
-import 'package:flutter/services.dart';
+import 'package:flutter/foundation.dart';
+import 'package:vector_math/vector_math_64.dart';
 
 // Type definitions to enforce a consistent use of the API
 typedef NodeTapResultHandler = void Function(List<String> nodes);
@@ -15,8 +17,7 @@ typedef NodeErrorHandler = void Function(String error);
 
 /// Manages the all node-related actions of an [ARView]
 class ARObjectManager {
-  /// Platform channel used for communication from and to [ARObjectManager]
-  late MethodChannel _channel;
+  late ARObjectHostApi _hostApi;
 
   /// Debugging status flag. If true, all platform calls are printed. Defaults to false.
   final bool debug;
@@ -35,131 +36,51 @@ class ARObjectManager {
   final Map<String, VoidCallback> _transformListeners = {};
 
   ARObjectManager(int id, {this.debug = false}) {
-    _channel = MethodChannel('arobjects_$id');
-    _channel.setMethodCallHandler(_platformCallHandler);
+    final suffix = id.toString();
+    _hostApi = ARObjectHostApi(messageChannelSuffix: suffix);
+    ARObjectFlutterApi.setUp(_ObjectEventHandler(this),
+        messageChannelSuffix: suffix);
     if (debug) {
       print("ARObjectManager initialized");
     }
   }
 
-  Future<void> _platformCallHandler(MethodCall call) {
-    if (debug) {
-      print('_platformCallHandler call ${call.method} ${call.arguments}');
-    }
-    try {
-      switch (call.method) {
-        case 'onError':
-          print(call.arguments);
-          onError?.call(call.arguments as String);
-          break;
-        case 'onNodeTap':
-          if (onNodeTap != null) {
-            final tappedNodes = call.arguments as List<dynamic>;
-            onNodeTap!(
-              tappedNodes.map((tappedNode) => tappedNode.toString()).toList(),
-            );
-          }
-          break;
-        case 'onPanStart':
-          if (onPanStart != null) {
-            final tappedNode = call.arguments as String;
-            // Notify callback
-            onPanStart!(tappedNode);
-          }
-          break;
-        case 'onPanChange':
-          if (onPanChange != null) {
-            final tappedNode = call.arguments as String;
-            // Notify callback
-            onPanChange!(tappedNode);
-          }
-          break;
-        case 'onPanEnd':
-          if (onPanEnd != null) {
-            final tappedNodeName = call.arguments["name"] as String;
-            final transform = MatrixConverter().fromJson(
-              call.arguments['transform'] as List,
-            );
-
-            // Notify callback
-            onPanEnd!(tappedNodeName, transform);
-          }
-          break;
-        case 'onRotationStart':
-          if (onRotationStart != null) {
-            final tappedNode = call.arguments as String;
-            onRotationStart!(tappedNode);
-          }
-          break;
-        case 'onRotationChange':
-          if (onRotationChange != null) {
-            final tappedNode = call.arguments as String;
-            onRotationChange!(tappedNode);
-          }
-          break;
-        case 'onRotationEnd':
-          if (onRotationEnd != null) {
-            final tappedNodeName = call.arguments["name"] as String;
-            final transform = MatrixConverter().fromJson(
-              call.arguments['transform'] as List,
-            );
-
-            // Notify callback
-            onRotationEnd!(tappedNodeName, transform);
-          }
-          break;
-        default:
-          if (debug) {
-            print('Unimplemented method ${call.method} ');
-          }
-      }
-    } catch (e) {
-      print('Error caught: ' + e.toString());
-    }
-    return Future.value();
-  }
-
   /// Sets up the AR Object Manager
-  Future<void> onInitialize() {
-    return _channel.invokeMethod<void>('init', {});
-  }
+  Future<void> onInitialize() => _hostApi.initialize();
 
   /// Add given node to the given anchor of the underlying AR scene (or to its top-level if no anchor is given) and listen to any changes made to its transformation
   Future<bool?> addNode(ARNode node, {ARPlaneAnchor? planeAnchor}) async {
     try {
       _removeTransformListener(node);
       void listener() {
-        _channel.invokeMethod<void>('transformationChanged', {
-          'name': node.name,
-          'transformation': MatrixValueNotifierConverter().toJson(
-            node.transformNotifier,
-          ),
-        });
+        _hostApi.transformationChanged(
+          node.name,
+          MatrixValueNotifierConverter()
+              .toJson(node.transformNotifier)
+              .cast<double>(),
+        );
       }
 
       _transformListeners[node.name] = listener;
       node.transformNotifier.addListener(listener);
       if (planeAnchor != null) {
         planeAnchor.childNodes.add(node.name);
-        final added = await _channel.invokeMethod<bool>(
-          'addNodeToPlaneAnchor',
-          {'node': node.toMap(), 'anchor': planeAnchor.toJson()},
+        final added = await _hostApi.addNodeToPlaneAnchor(
+          _toNodeMessage(node),
+          _toAnchorMessage(planeAnchor),
         );
         if (added != true) {
           _removeTransformListener(node);
         }
         return added;
       } else {
-        final added = await _channel.invokeMethod<bool>(
-          'addNode',
-          node.toMap(),
-        );
+        final added = await _hostApi.addNode(_toNodeMessage(node));
         if (added != true) {
           _removeTransformListener(node);
         }
         return added;
       }
-    } on PlatformException catch (e) {
+    } catch (e) {
       print('Error caught: ' + e.toString());
       _removeTransformListener(node);
       return false;
@@ -169,7 +90,7 @@ class ARObjectManager {
   /// Remove given node from the AR Scene
   Future<void> removeNode(ARNode node) async {
     _removeTransformListener(node);
-    await _channel.invokeMethod<void>('removeNode', {'name': node.name});
+    await _hostApi.removeNode(node.name);
   }
 
   void _removeTransformListener(ARNode node) {
@@ -177,5 +98,80 @@ class ARObjectManager {
     if (listener != null) {
       node.transformNotifier.removeListener(listener);
     }
+  }
+
+  NodeMessage _toNodeMessage(ARNode node) {
+    final map = node.toMap();
+    return NodeMessage(
+      type: map['type'] as int,
+      name: map['name'] as String,
+      transformation: (map['transformation'] as List).cast<double>(),
+      uri: map['uri'] as String?,
+      data: map['data'] as Map<String, dynamic>?,
+    );
+  }
+
+  AnchorMessage _toAnchorMessage(ARPlaneAnchor anchor) {
+    final map = anchor.toJson();
+    return AnchorMessage(
+      type: map['type'] as int,
+      name: map['name'] as String,
+      transformation: (map['transformation'] as List).cast<double>(),
+      childNodes: (map['childNodes'] as List?)?.cast<String>(),
+      cloudAnchorId: map['cloudanchorid'] as String?,
+      ttl: map['ttl'] as int?,
+    );
+  }
+}
+
+/// Forwards Pigeon-generated `ARObjectFlutterApi` callbacks to
+/// [ARObjectManager]'s public callback fields. Kept as a separate class
+/// because the callback field names (`onError`, `onPanEnd`, ...) are
+/// intentionally identical to the interface method names, which a class
+/// can't both declare as a field and implement as a method.
+class _ObjectEventHandler implements ARObjectFlutterApi {
+  _ObjectEventHandler(this._manager);
+
+  final ARObjectManager _manager;
+
+  @override
+  void onError(String message) {
+    if (_manager.debug) {
+      print(message);
+    }
+    _manager.onError?.call(message);
+  }
+
+  @override
+  void onNodeTap(List<String?> names) {
+    _manager.onNodeTap?.call(names.whereType<String>().toList());
+  }
+
+  @override
+  void onPanStart(String name) => _manager.onPanStart?.call(name);
+
+  @override
+  void onPanChange(String name) => _manager.onPanChange?.call(name);
+
+  @override
+  void onPanEnd(NodeTransformEventMessage event) {
+    _manager.onPanEnd?.call(
+      event.name,
+      MatrixConverter().fromJson(event.transform),
+    );
+  }
+
+  @override
+  void onRotationStart(String name) => _manager.onRotationStart?.call(name);
+
+  @override
+  void onRotationChange(String name) => _manager.onRotationChange?.call(name);
+
+  @override
+  void onRotationEnd(NodeTransformEventMessage event) {
+    _manager.onRotationEnd?.call(
+      event.name,
+      MatrixConverter().fromJson(event.transform),
+    );
   }
 }

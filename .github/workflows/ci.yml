@@ -26,6 +26,12 @@ jobs:
       - name: Install package dependencies
         run: flutter pub get
 
+      - name: Check generated Pigeon code is up to date
+        run: |
+          dart run pigeon --input pigeons/messages.dart
+          dart format lib/src/generated/messages.g.dart
+          git diff --exit-code -- pigeons lib/src/generated android/src/main/kotlin/com/flutterreality/flutter_reality/Messages.g.kt ios/Classes/Messages.g.swift
+
       - name: Check formatting
         run: dart format --output=none --set-exit-if-changed lib test example/lib
 
@@ -48,6 +54,33 @@ jobs:
 
       - name: Check dependency health
         run: flutter pub outdated --no-dev-dependencies
+
+  android-build:
+    name: Android build check
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Build example for Android (debug)
+        working-directory: example
+        run: flutter build apk --debug
 
   ios-build:
     name: iOS build check
