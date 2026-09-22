@@ -547,3 +547,43 @@ exit). This closes out the "full interactive pass" item that was open after
 the Pigeon migration — cloud anchor upload/download was not exercised (needs
 a configured Google Cloud project/API key not set up in this environment) and
 remains untested, same as before this session.
+
+### Point-cloud pooling fix — follow-up verification with `showFeaturePoints: true`
+
+Follow-up to the point-cloud instance-pool leak fixed earlier this session (see
+CHANGELOG `0.1.0`). Temporarily set `showFeaturePoints: true` in
+`example/lib/main.dart` (default is `false`) to force continuous point-cloud
+refresh cycles, deployed to the Pixel 9a, and took `dumpsys meminfo`
+measurements before and after two ~75-second continuous phone sweeps (moving
+the camera across varied surfaces/angles to keep triggering plane/feature
+point tracking, confirmed visually — the white feature-point dots were
+visible on-device throughout).
+
+| | Baseline | After sweep 1 (~75s) | After sweep 2 (~75s) |
+|---|---|---|---|
+| EGL mtrack (KB) | — (not yet allocated) | 274800 | 165240 |
+| GL mtrack (KB) | 32060 | 214436 | 164564 |
+| Native Heap (KB) | 142928 | 164372 | 256196 |
+| TOTAL PSS (KB) | 384255 | 968405 | 845956 |
+
+`EGL mtrack`/`GL mtrack` — the Filament/GPU-side categories where a leaked
+`FilamentAsset` from the point-cloud pool would show up — **decreased** from
+sweep 1 to sweep 2 rather than continuing to grow, and `TOTAL PSS` dropped as
+well. This is the opposite of what the pre-fix leak looked like (which grew
+monotonically every time the pool drained) and is strong evidence the pooling
+fix holds under sustained, continuous point-cloud refresh, not just the
+single-round smoke test done right after the fix landed.
+
+`Native Heap` did keep growing across both sweeps (142928 → 164372 → 256196).
+Session logs during this test showed active Google VPS map-building
+(`localization_manager_impl.cc` entries), which matches the standing
+hypothesis from the original leak investigation that this growth is ARCore's
+own SLAM/VPS map data accumulating during active scanning, not plugin code —
+now with slightly more support, since it's *not* accompanied by any
+corresponding GPU memory growth, which is what plugin-owned point-cloud code
+would produce. Still not independently isolated with certainty; if it ever
+becomes a real complaint, the next step would be disabling VPS/geospatial
+mode (if enabled) to see if Native Heap growth disappears.
+
+`example/lib/main.dart`'s `showFeaturePoints` was reverted back to `false`
+after this test — not a default change.
