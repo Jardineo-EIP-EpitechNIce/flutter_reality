@@ -326,6 +326,12 @@ don't need to add anything manually. Two things worth checking in your app:
 * **`minSdkVersion`**: set it to at least `28` in your app's
   `android/app/build.gradle` (or `build.gradle.kts`), matching this plugin's
   requirement.
+* **`compileSdk`**: this plugin compiles against API `36`. If your app's own
+  `compileSdk` is lower, Flutter's Gradle tooling will print a warning (or
+  fail, depending on version) telling you to raise it — bump your app's
+  `compileSdk` to `36` or higher to match. This does not affect your app's
+  `minSdkVersion`/`targetSdkVersion` choices, only what's available at
+  compile time.
 * **Google Play Services for AR**: it's installed automatically from the
   Play Store on certified devices the first time an ARCore app runs, but if
   you're testing on a device that never had an AR app installed before, make

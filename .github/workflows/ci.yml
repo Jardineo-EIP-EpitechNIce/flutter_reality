@@ -48,3 +48,24 @@ jobs:
 
       - name: Check dependency health
         run: flutter pub outdated --no-dev-dependencies
+
+  ios-build:
+    name: iOS build check
+    runs-on: macos-latest
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Install example dependencies
+        working-directory: example
+        run: flutter pub get
+
+      - name: Build example for iOS (no codesigning, no simulator run)
+        working-directory: example
+        run: flutter build ios --no-codesign --debug

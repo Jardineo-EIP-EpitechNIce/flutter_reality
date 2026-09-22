@@ -123,6 +123,12 @@ class _ArHomePageState extends State<ArHomePage> {
     objectManager.onRotationEnd = (name, transform) {
       setState(() => _status = 'Rotated model.');
     };
+    objectManager.onError = (error) {
+      setState(() => _status = 'Object error: $error');
+    };
+    anchorManager.onError = (error) {
+      setState(() => _status = 'Anchor error: $error');
+    };
     setState(
         () => _status = 'AR session ready. Move the device to scan surfaces.');
   }
