@@ -6,7 +6,10 @@ plugins {
 
 android {
     namespace = "com.flutterreality.ar_flutter_example"
-    compileSdk = flutter.compileSdkVersion
+    // arsceneview 4.x (Milestone A of the sceneview-4x-upgrade spike) pulls in
+    // Compose foundation/ui 1.12.1, which requires compileSdk 37; Flutter's own
+    // bundled default (flutter.compileSdkVersion) doesn't go that high yet.
+    compileSdk = 37
     ndkVersion = flutter.ndkVersion
 
     compileOptions {
