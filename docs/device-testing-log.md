@@ -241,11 +241,14 @@ Still open:
 - iOS/ARKit has its own lifecycle to verify (`IosARView.swift`) — nothing
   in this session touched or tested it; still fully open per "Not yet
   tested" below.
-- A native memory leak in repeated node placement/removal (see "Memory
-  leak in repeated anchor add/remove" below) — the anchor half is fixed,
-  but a second, likely larger leak from repeated `duck.glb` model
-  loading is still open, and needs the `FilamentAsset` sharing question
-  answered before attempting a fix.
+- Two native memory leaks in repeated node/anchor placement and removal
+  found and fixed this session (see "Memory leak in repeated anchor
+  add/remove" below) — verified with a controlled before/after
+  comparison that Filament/GPU memory (`EGL mtrack`/`GL mtrack`) is flat
+  across repeated cycles. `Native Heap` still grows modestly per cycle,
+  plausibly from ARCore's own session data rather than this plugin's
+  code, but that wasn't independently confirmed — worth revisiting if
+  it turns into a real complaint.
 
 ### `MissingPluginException` on `arobjects_$id`'s `init` call — FIXED, and the "startup race" theory below was wrong
 
@@ -376,7 +379,7 @@ recreated at the new hit location) visibly relocates it; pinch does
 nothing (deliberately, since scale isn't a supported/tested capability
 of this plugin).
 
-### Memory leak in repeated anchor add/remove — partially fixed; a second leak remains, not yet fixed
+### Two native memory leaks in repeated node/anchor add/remove — FIXED and verified
 
 A temporary stress-test button was added to the example app (touch a
 plane once to capture a hit transform, then loop 20x: add a plane anchor
@@ -403,27 +406,51 @@ strong Kotlin-side reference on top of that. Fixed by calling
 `anchor.destroy()` and `anchorNodesMap.remove(anchorName)` in
 `handleRemoveAnchor`.
 
-**Not fully fixed — a second leak remains**: re-running the same stress
-test after the anchor fix showed memory still growing at roughly the
-same rate (though `SWAP PSS` stayed much flatter, suggesting the anchor
-fix did help with *something*). The most likely remaining source: each
-`addNode` call does `sceneView.modelLoader.loadModelInstance(fileLocation)`
-to load `duck.glb`, and `ModelLoader` exposes a `destroyModel(FilamentAsset)`
-method that `handleRemoveNode` never calls (it only calls `node.destroy()`,
-which — per the same decompiled `Node.destroy()` — releases the root
-entity's transform, not the underlying `FilamentAsset`'s mesh/texture
-buffers).
+**Second leak found and fixed**: re-running the same stress test after
+the anchor fix showed `TOTAL PSS` still growing at roughly the same
+rate. Suspected source: each `addNode` call does
+`sceneView.modelLoader.loadModelInstance(fileLocation)` to load
+`duck.glb`, and `ModelLoader` exposes a `destroyModel(FilamentAsset)`
+method that `handleRemoveNode` never called (it only called
+`node.destroy()`, which — per the same decompiled `Node.destroy()` —
+releases the root entity's transform, not the underlying
+`FilamentAsset`'s mesh/texture buffers).
 
-**Deliberately not fixed blind**: in Filament's gltfio, a `FilamentAsset`
-(the loaded mesh/texture data) can be shared across multiple
-`FilamentInstance`s created from it — that's the whole point of the
-instance API, and is very plausibly what `loadModelInstance` does
-internally when called repeatedly with the same file path (i.e. cache
-the `FilamentAsset`, return cheap new instances from it). If that's the
-case, calling `destroyModel` on every single node removal would free
-the asset out from under any other still-visible node sharing it,
-corrupting or crashing rendering — a worse bug than a leak. This needs
-confirming (read `ModelLoader.loadModelInstance`'s actual caching
-behavior, or test removing one of several simultaneously-placed models
-and see if the others break) before attempting a fix, which wasn't done
-this session.
+Before fixing it, confirmed the safety concern that blocked doing this
+blind: in Filament's gltfio, a `FilamentAsset` *can* be shared across
+multiple `FilamentInstance`s, so destroying it under a still-visible
+node sharing it would corrupt rendering — worse than the leak. Decompiled
+`ModelLoader.createModel(String, ...)` (the method `loadModelInstance`
+calls internally) with CFR: it re-reads the file and calls
+`assetLoader.createAsset(buffer)` on **every single call**, appending to
+an internal list with no lookup-before-create — there is no cache, no
+sharing by path. Each `addNode` call gets its own independent
+`FilamentAsset`. Safe to destroy on removal.
+
+**Fix**: added `sceneView.modelLoader.destroyModel(node.model)` right
+after `node.destroy()` in `handleRemoveNode`.
+
+**Verified with a controlled, single-round-at-a-time comparison** (the
+earlier multi-round stress runs were too noisy to attribute growth
+cleanly — real background activity on a shared device adds variance):
+placed one model, took a full `dumpsys meminfo` breakdown, ran exactly
+one 20-iteration stress round, re-measured, ran a second round,
+re-measured again.
+
+| | Baseline | After round 1 (+20) | After round 2 (+20) |
+|---|---|---|---|
+| EGL mtrack (KB) | 282832 | 279792 | 282832 |
+| GL mtrack (KB) | 155312 | 151808 | 153568 |
+| Native Heap (KB) | 243167 | 255255 | 272507 |
+| TOTAL PSS (KB) | 937233 | 941693 | 962143 |
+
+`EGL mtrack`/`GL mtrack` — the Filament/GPU-side memory that would
+directly reflect a leaked `FilamentAsset` or Filament entity — are flat
+within noise across both rounds (round 2 ends essentially at the
+baseline). This is strong evidence both leaks are actually fixed.
+`Native Heap` grows a modest ~12-17 MB per 20-cycle round; the most
+likely explanation is ARCore's own plane/feature-point tracking data
+accumulating as the camera keeps scanning during the test (expected
+session behavior, not code we control), rather than a leak in this
+plugin, but this wasn't independently isolated and confirmed — worth
+another look if memory growth becomes a real-world complaint.

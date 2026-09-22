@@ -662,6 +662,13 @@ class ArView(
                 sceneView.removeChildNode(node)
                 // Nettoyer les ressources du nœud
                 node.destroy()
+                // ModelLoader.loadModelInstance creates a brand new FilamentAsset on every
+                // call (confirmed by decompiling ModelLoader.createModel: it always calls
+                // assetLoader.createAsset(buffer), never a cache lookup by path) - so this
+                // asset is never shared with another node, and destroying it here is safe.
+                // node.destroy() alone only releases the root entity's transform, not the
+                // underlying mesh/texture buffers, which otherwise leak on every removal.
+                sceneView.modelLoader.destroyModel(node.model)
                 // Enfin le retirer de notre Map
                 nodesMap.remove(nodeName)
                 
