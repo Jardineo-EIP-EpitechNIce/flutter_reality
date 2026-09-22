@@ -160,9 +160,6 @@ class ARSessionManager {
           final planeCountResult = call.arguments as int;
           onPlaneDetected?.call(planeCountResult);
           break;
-        case 'dispose':
-          _channel.invokeMethod<void>("dispose");
-          break;
         default:
           if (debug) {
             print('Unimplemented method ${call.method} ');
