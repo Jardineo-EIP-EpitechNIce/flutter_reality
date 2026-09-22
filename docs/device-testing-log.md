@@ -241,6 +241,11 @@ Still open:
 - iOS/ARKit has its own lifecycle to verify (`IosARView.swift`) — nothing
   in this session touched or tested it; still fully open per "Not yet
   tested" below.
+- A native memory leak in repeated node placement/removal (see "Memory
+  leak in repeated anchor add/remove" below) — the anchor half is fixed,
+  but a second, likely larger leak from repeated `duck.glb` model
+  loading is still open, and needs the `FilamentAsset` sharing question
+  answered before attempting a fix.
 
 ### `MissingPluginException` on `arobjects_$id`'s `init` call — FIXED, and the "startup race" theory below was wrong
 
@@ -370,3 +375,55 @@ which is how this plugin's pan has always worked, via the anchor being
 recreated at the new hit location) visibly relocates it; pinch does
 nothing (deliberately, since scale isn't a supported/tested capability
 of this plugin).
+
+### Memory leak in repeated anchor add/remove — partially fixed; a second leak remains, not yet fixed
+
+A temporary stress-test button was added to the example app (touch a
+plane once to capture a hit transform, then loop 20x: add a plane anchor
++ a `duck.glb` node on it, remove the node, remove the anchor — not
+committed, removed after use) to check node/anchor destruction under
+load, per the roadmap's "verify correct destruction of nodes and
+anchors" item. No crashes or `addAnchor`/`addNode` failures across
+several hundred iterations, but `adb shell dumpsys meminfo`'s `TOTAL PSS`
+grew steadily and did not plateau: roughly +90-230 MB per ~80-100
+create/destroy cycles, with `TOTAL SWAP PSS` also climbing (up to
+~104 MB at one point) — consistent with a genuine native leak, not
+just pending-GC noise (which would plateau).
+
+**Root cause found for one contributor:** `handleRemoveAnchor` in
+`ArView.kt` never called `.destroy()` on the removed `AnchorNode`, and
+never removed its entry from `anchorNodesMap`. Confirmed via CFR
+decompilation of the actual `arsceneview:2.2.1` classes (not the
+newer, differently-structured GitHub `main` branch, which would have
+been misleading) that `Node.destroy()` calls
+`EngineKt.safeDestroyTransformable`/`safeDestroyEntity`, i.e. it
+releases the Filament engine entity — without it, every created anchor's
+native entity stays allocated forever, and the never-cleared map keeps a
+strong Kotlin-side reference on top of that. Fixed by calling
+`anchor.destroy()` and `anchorNodesMap.remove(anchorName)` in
+`handleRemoveAnchor`.
+
+**Not fully fixed — a second leak remains**: re-running the same stress
+test after the anchor fix showed memory still growing at roughly the
+same rate (though `SWAP PSS` stayed much flatter, suggesting the anchor
+fix did help with *something*). The most likely remaining source: each
+`addNode` call does `sceneView.modelLoader.loadModelInstance(fileLocation)`
+to load `duck.glb`, and `ModelLoader` exposes a `destroyModel(FilamentAsset)`
+method that `handleRemoveNode` never calls (it only calls `node.destroy()`,
+which — per the same decompiled `Node.destroy()` — releases the root
+entity's transform, not the underlying `FilamentAsset`'s mesh/texture
+buffers).
+
+**Deliberately not fixed blind**: in Filament's gltfio, a `FilamentAsset`
+(the loaded mesh/texture data) can be shared across multiple
+`FilamentInstance`s created from it — that's the whole point of the
+instance API, and is very plausibly what `loadModelInstance` does
+internally when called repeatedly with the same file path (i.e. cache
+the `FilamentAsset`, return cheap new instances from it). If that's the
+case, calling `destroyModel` on every single node removal would free
+the asset out from under any other still-visible node sharing it,
+corrupting or crashing rendering — a worse bug than a leak. This needs
+confirming (read `ModelLoader.loadModelInstance`'s actual caching
+behavior, or test removing one of several simultaneously-placed models
+and see if the others break) before attempting a fix, which wasn't done
+this session.

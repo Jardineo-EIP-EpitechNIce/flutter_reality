@@ -817,6 +817,8 @@ class ArView(
             if (anchor != null) {
                 sceneView.removeChildNode(anchor)
                 anchor.anchor?.detach()
+                anchor.destroy()
+                anchorNodesMap.remove(anchorName)
                 result.success(null)
             } else {
                 result.error("ANCHOR_NOT_FOUND", "Anchor with name $anchorName not found", null)
