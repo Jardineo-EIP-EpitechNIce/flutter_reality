@@ -498,3 +498,52 @@ thread until SceneKit's own render-loop delegate callback attaches the anchor's
 node — this is pre-existing behavior, not something this migration touched, but on
 the main actor under Pigeon's structured concurrency it's worth a first look in
 case it behaves differently than the old completion-handler-based dispatch.
+
+### Full interactive pass on Pixel 9a — post-migration + perf fixes
+
+With the Pigeon migration and the Android perf/memory fixes (duplicate
+`session.update()`, point-cloud pool leak, snapshot main-thread stall, and the
+double-teardown guard) all merged to `main` (commit `0f15142`), ran a complete
+manual interactive pass this time (previous passes only smoke-tested the
+`initialize()` config round-trip, since the device was hands-free). Build:
+`flutter build apk --debug` clean; deployed via `flutter run -d 63281JEBF11630
+--debug` with a live `adb logcat` capture for the entire session.
+
+Verified, each step confirmed visually on-device and cross-checked against the
+logcat capture for exceptions:
+
+- **Plane detection**: camera feed live, plane detected after scanning.
+- **Tap-to-place**: tapping a detected plane placed the duck model at the
+  tapped location (exercises `addAnchor` + `addNodeToPlaneAnchor`, and the
+  `onPlaneOrPointTap` hit-test path which now uses the tap's real
+  `hit.hitPose` rotation instead of the old zero-rotation placeholder).
+- **Pan/drag**: smooth, model follows the finger and stays at the release
+  point.
+- **Rotation**: smooth two-finger rotation around the vertical axis with no
+  unwanted scale change — confirms the earlier gesture-arbitration fix
+  (`isEditable`/`isScaleEditable`) still holds after the migration.
+  Pinch-to-scale correctly does nothing (deliberately unsupported, no
+  `handleScale` API exposed).
+- **Node removal**: "Remove last model" cleanly removes the model and
+  decrements the counter (exercises `removeNode`, including the
+  `destroyModel` memory-leak fix from earlier this session).
+- **Background/foreground**: camera feed resumes live after backgrounding and
+  returning to the app (confirms the Hybrid Composition black-screen fix
+  still holds).
+- **Clean app exit**: app closes without a crash dialog. Logcat shows one
+  internal ARCore/MediaPipe teardown message
+  (`normal_detector_cpu.cc: Error graph_->WaitUntilIdle()... state_ !=
+  STATE_NOT_STARTED`) during session shutdown — this is ARCore's own
+  MediaPipe graph complaining about shutdown ordering, not a plugin error (no
+  `flutter_reality` code in the stack, no `FlutterError`, no fatal
+  exception) — and is the expected path that exercises the new
+  `isTornDown` double-teardown guard (Dart's `dispose()` followed by
+  `PlatformView.dispose()` from the framework), which did not crash or
+  double-free anything.
+
+**Zero exceptions, `MissingPluginException`s, or `FlutterError`s appeared in
+the full logcat capture across the entire session** (launch through clean
+exit). This closes out the "full interactive pass" item that was open after
+the Pigeon migration — cloud anchor upload/download was not exercised (needs
+a configured Google Cloud project/API key not set up in this environment) and
+remains untested, same as before this session.
