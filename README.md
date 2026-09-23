@@ -320,8 +320,23 @@ Therefore, it is necessary to publish your project with github and make the modi
 ## Android Setup
 
 The plugin's own `android/src/main/AndroidManifest.xml` already declares the
-camera permission and the ARCore hardware feature requirement, so most apps
-don't need to add anything manually. Two things worth checking in your app:
+camera permission and the ARCore hardware feature, so most apps don't need to
+add anything manually.
+
+**AR Optional by default.** The plugin declares `android.hardware.camera.ar`
+with `required="false"`, so your app stays installable on phones that don't
+support ARCore; on those devices, opening an `ARView` reports the failure
+through `ARSessionManager.onError` instead of crashing. Hide or disable your AR
+entry points when that happens. If AR is the core of your app and you want
+Google Play to show it only to ARCore-supported devices ("AR Required"),
+declare the feature yourself in `android/app/src/main/AndroidManifest.xml`.
+Your `required="true"` wins when the manifests are merged:
+
+```xml
+<uses-feature android:name="android.hardware.camera.ar" android:required="true" />
+```
+
+Two more things worth checking in your app:
 
 * **`minSdkVersion`**: set it to at least `28` in your app's
   `android/app/build.gradle` (or `build.gradle.kts`), matching this plugin's
