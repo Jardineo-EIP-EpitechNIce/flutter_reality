@@ -136,6 +136,14 @@ over how they were linked. A real fix needs one of:
 - moving off `arsceneview` for the rendering backend, which is a much
   larger change than "stabilize the lifecycle" and out of scope for now.
 
+**Update (2026-09-23):** `arsceneview 2.3.3` ships Filament `1.68.2`, whose
+native libraries are 16 KB-aligned — confirmed on a Pixel 9a, and unlike the
+`2.3.0` attempt above, no `compileSdk` change was needed since it had
+already been raised to 36 for an unrelated release. `android/build.gradle`
+now depends on `2.3.3`. This only addresses the alignment warning covered
+by bug #1/#2's *first* root cause here; it doesn't change anything about
+the second root cause below.
+
 ### Second root cause found: the platform view itself is recreated on resume, not just paused
 
 Wired `ARSceneView.onSessionFailed` (previously unused; exposed by the

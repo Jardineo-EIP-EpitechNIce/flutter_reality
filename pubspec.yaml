@@ -1,6 +1,6 @@
 name: flutter_reality
 description: A cross-platform Flutter plugin for building augmented reality experiences with native ARCore support on Android and ARKit support on iOS.
-version: 0.1.0
+version: 0.1.1
 repository: https://github.com/Jardineo-EIP-EpitechNIce/flutter_reality
 topics:
   - augmented-reality

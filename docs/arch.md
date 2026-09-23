@@ -195,7 +195,7 @@ The main structure on the Android side includes:
 
 6. **`android/build.gradle`**
 
-   - Depends on `io.github.sceneview:arsceneview:2.2.1` and the Flutter embedding debug library.
+   - Depends on `io.github.sceneview:arsceneview:2.3.3` and the Flutter embedding debug library.
 
 ### Key Interaction Example
 
