@@ -1,15 +1,16 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="com.flutterreality.flutter_reality">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
 
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.INTERNET" />
-    
-    <uses-feature android:name="android.hardware.camera.ar" android:required="true"/>
+
+    <!-- Optional so host apps aren't forced to be "AR Required" on Google Play; an app that
+         wants that can declare the feature with required="true" itself, which wins on merge. -->
+    <uses-feature android:name="android.hardware.camera.ar" android:required="false"/>
     <uses-feature android:glEsVersion="0x00030000" android:required="true" />
 
     <application>
 
     </application>
 
-</manifest> 
+</manifest>
