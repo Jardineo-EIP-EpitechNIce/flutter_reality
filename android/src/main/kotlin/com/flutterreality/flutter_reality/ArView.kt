@@ -446,8 +446,17 @@ class ArView(
                             }
                             true
                         } else {
-                            session?.update()?.let { frame ->
-                                val hitResults = frame.hitTest(motionEvent)
+                            // Hit-test the frame ARSceneView already rendered instead of calling
+                            // session.update() here: a second update steals a camera image from the
+                            // render loop, and single-tap confirmation fires ~300ms after the touch,
+                            // by which time the app may have been backgrounded and the session paused.
+                            val hitResults = try {
+                                frame?.hitTest(motionEvent)
+                            } catch (e: SessionPausedException) {
+                                Log.d(TAG, "Session paused, ignoring tap")
+                                null
+                            }
+                            if (hitResults != null) {
 
                                 Log.d("ArView", "Hit Results count: ${hitResults.size}")
 
@@ -616,8 +625,7 @@ class ArView(
 
     private suspend fun getCameraPoseImpl(): PoseMessage {
         try {
-            val frame = sceneView.session?.update()
-            val cameraPose = frame?.camera?.pose
+            val cameraPose = sceneView.frame?.camera?.pose
                 ?: throw FlutterError("NO_CAMERA_POSE", "Camera pose is not available", null)
             return PoseMessage(matrix = serializePose(cameraPose).toList())
         } catch (e: FlutterError) {
